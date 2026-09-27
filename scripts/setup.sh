@@ -14,6 +14,7 @@ import sys
 if sys.version_info < (3, 12):
     sys.exit(f"error: Python >= 3.12 required, found {sys.version.split()[0]}")
 PY
+# shellcheck disable=SC2016  # ${...} is a JavaScript template literal, not shell
 node -e 'const [a,b]=process.versions.node.split(".").map(Number); if (a<22||(a===22&&b<22)) { console.error(`error: Node >= 22.22 required, found ${process.versions.node}`); process.exit(1); }'
 
 echo "==> Backend: virtualenv + dependencies"
