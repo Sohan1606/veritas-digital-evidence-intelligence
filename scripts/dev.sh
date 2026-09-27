@@ -23,7 +23,9 @@ echo "==> Starting API on http://127.0.0.1:8000"
 pids+=($!)
 
 echo "==> Starting frontend on http://localhost:5173"
-(cd "$ROOT/frontend" && npm run dev) &
+# exec the Vite binary directly (not via npm, which does not forward signals) so the
+# cleanup trap reaches the server itself and no orphan keeps port 5173.
+(cd "$ROOT/frontend" && exec ./node_modules/.bin/vite) &
 pids+=($!)
 
 wait -n "${pids[@]}"

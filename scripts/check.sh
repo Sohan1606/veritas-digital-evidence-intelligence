@@ -21,8 +21,8 @@ step "frontend: test";                npm test --silent
 step "frontend: build";               npm run --silent build
 
 cd "$ROOT"
-step "repository: lint";              "$PY" -m ruff check --config backend/pyproject.toml tests
-"$PY" -m ruff format --check --config backend/pyproject.toml tests
+step "repository: lint";              "$PY" -m ruff check --config backend/pyproject.toml tests scripts/qa
+"$PY" -m ruff format --check --config backend/pyproject.toml tests scripts/qa
 step "repository: hygiene tests";     "$PY" -m pytest -q tests
 
 printf '\nAll checks passed.\n'
