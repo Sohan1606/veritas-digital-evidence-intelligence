@@ -132,8 +132,14 @@ Coverage includes health/readiness, validation and error envelopes, routes, data
 constraints and append-only audit, no secret or stack-trace leakage, the auth placeholder,
 CORS and trusted hosts, canonical entities, no duplicate endpoints, no demo-data leakage
 into non-demo cases, frontend boot and routing, navigation, responsive fallback,
-automated accessibility checks (axe), Evidence Profile, Finding actions, graph layout and
-the API client.
+automated accessibility checks (axe), WCAG AA contrast of every text colour token on every
+surface, Evidence Profile, Finding actions, graph layout and the API client.
+
+Optional real-browser QA (not part of `check.sh`; Playwright is not a project dependency):
+`scripts/qa/browser_smoke.py` runs against a running build in Chromium, Firefox and WebKit
+at 1440 and 390 px — route content, axe WCAG 2.1 AA including colour contrast, showcase
+canvas, graph selection, command palette / mobile navigation, console errors and CSP
+violations; `--perf` adds a throttled-CPU mobile scroll probe. Setup is in its docstring.
 
 ## Security
 
@@ -162,6 +168,10 @@ records only; no media or evidence files exist in the repository or database.
 - No examination: no Analysis Runs exist; the demonstration observations are manual records.
 - Global search matches loaded navigation targets and records literally; there is no search index.
 - Notifications are local, client-side system notices.
+- Browser coverage is automated headless engines (Chromium, Firefox, Playwright WebKit on
+  Linux). Safari on Apple platforms, mobile devices and screen readers are not yet tested.
+- ESLint stays on 9.x (no longer supported upstream) until `eslint-plugin-jsx-a11y`
+  supports ESLint 10; it is a development-only dependency.
 
 ## Roadmap
 

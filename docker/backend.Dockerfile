@@ -4,16 +4,22 @@ FROM python:3.13-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore
 
 WORKDIR /srv/backend
 
-# Dependencies first for layer caching; runtime dependencies only (no dev extras).
+# Runtime dependencies (no dev extras) from pyproject.toml alone, so this layer is
+# cached across application-code changes.
 COPY backend/pyproject.toml ./
+RUN python -c "import tomllib; print('\\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" > /tmp/requirements.txt \
+ && pip install -r /tmp/requirements.txt && rm /tmp/requirements.txt \
+ && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin veritas
+
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./
-RUN pip install . && useradd --system --uid 10001 --no-create-home veritas
+RUN pip install --no-deps .
 
 USER veritas
 EXPOSE 8000

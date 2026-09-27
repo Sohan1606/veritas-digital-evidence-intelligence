@@ -6,7 +6,9 @@ the API on :8000) in Chromium, Firefox and WebKit at desktop (1440) and mobile
 content with an h1, that axe-core (WCAG 2.1 A/AA + best practice, colour
 contrast included) reports no violations, that the showcase canvas paints, that
 graph node selection drives the detail panel, that the command palette (desktop)
-or mobile navigation works, and that no console/page errors occur. `--perf`
+or mobile navigation works, and that no console/page errors or Content Security
+Policy violations occur. Functional checks run with the served CSP enforced; only
+the axe pass uses a separate context that bypasses CSP to inject axe-core. `--perf`
 adds a throttled-CPU mobile scroll probe of the showcase (Chromium only).
 
 Playwright is deliberately NOT a project dependency. Use a throwaway venv:
@@ -62,6 +64,24 @@ ROUTES = {
 CLAIM_TEXT = "photograph was taken at the recipient"
 
 
+RETRIES: list[str] = []
+
+
+def goto(page: Page, url: str) -> None:
+    """Navigate; one retry after a stalled load. Every retry is counted and reported.
+
+    Known harness quirk: against the nginx image, Playwright's Firefox driver often
+    loses the first navigation of a new tab because Cross-Origin-Opener-Policy:
+    same-origin makes Firefox swap the tab into a new browsing-context group. The
+    same run without COOP needed 0 retries. COOP stays; a retry reloads the page.
+    """
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+    except Exception:
+        RETRIES.append(url)
+        page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+
+
 def wait_text(page: Page, text: str) -> bool:
     try:
         page.wait_for_function(
@@ -74,7 +94,25 @@ def wait_text(page: Page, text: str) -> bool:
         return False
 
 
-def run_engine(ctx: BrowserContext, base: str, label: str, desktop: bool, axe: str) -> list[str]:
+CSP_RECORDER = """window.__cspViolations = [];
+document.addEventListener('securitypolicyviolation',
+  e => window.__cspViolations.push(e.violatedDirective + ' ' + e.blockedURI));"""
+
+
+def run_axe(ctx: BrowserContext, base: str, label: str, axe: str) -> list[str]:
+    fails: list[str] = []
+    for route, text in ROUTES.items():
+        pg = ctx.new_page()
+        goto(pg, base + route)
+        wait_text(pg, text)
+        pg.add_script_tag(content=axe)
+        if violations := pg.evaluate(AXE_RUN):
+            fails.append(f"{label} {route}: axe {violations}")
+        pg.close()
+    return fails
+
+
+def run_engine(ctx: BrowserContext, base: str, label: str, desktop: bool) -> list[str]:
     fails: list[str] = []
     errors: list[str] = []
 
@@ -84,29 +122,31 @@ def run_engine(ctx: BrowserContext, base: str, label: str, desktop: bool, axe: s
         pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         return pg
 
+    def close(pg: Page) -> None:
+        if csp := pg.evaluate("window.__cspViolations || []"):
+            errors.append(f"CSP violations on {pg.url}: {csp[:3]}")
+        pg.close()
+
     for route, text in ROUTES.items():  # fresh page per route keeps engines comparable
         pg = page()
-        pg.goto(base + route, wait_until="domcontentloaded")
+        goto(pg, base + route)
         if not wait_text(pg, text):
             fails.append(f"{label} {route}: missing {text!r}")
         if pg.locator("h1").count() < 1:
             fails.append(f"{label} {route}: no h1")
-        pg.add_script_tag(content=axe)
-        if violations := pg.evaluate(AXE_RUN):
-            fails.append(f"{label} {route}: axe {violations}")
-        pg.close()
+        close(pg)
 
     pg = page()
-    pg.goto(base + "/", wait_until="domcontentloaded")
+    goto(pg, base + "/")
     wait_text(pg, ROUTES["/"])
     pg.evaluate("window.scrollTo(0, document.documentElement.scrollHeight * 0.4)")
     pg.wait_for_timeout(1200)
     if pg.locator("canvas").count() and pg.evaluate(PAINTED) <= 10:
         fails.append(f"{label} showcase canvas did not paint")
-    pg.close()
+    close(pg)
 
     pg = page()
-    pg.goto(base + "/app/cases/CASE-001/graph", wait_until="domcontentloaded")
+    goto(pg, base + "/app/cases/CASE-001/graph")
     wait_text(pg, ROUTES["/app/cases/CASE-001/graph"])
     before = CLAIM_TEXT in pg.inner_text("body").lower()
     node = pg.locator('g[aria-label^="Claim CLM-001"]')
@@ -118,10 +158,10 @@ def run_engine(ctx: BrowserContext, base: str, label: str, desktop: bool, axe: s
     target.click()
     if before or not wait_text(pg, CLAIM_TEXT):
         fails.append(f"{label} graph selection did not drive the detail panel")
-    pg.close()
+    close(pg)
 
     pg = page()
-    pg.goto(base + "/app/cases/CASE-001", wait_until="domcontentloaded")
+    goto(pg, base + "/app/cases/CASE-001")
     wait_text(pg, ROUTES["/app/cases/CASE-001"])
     try:
         if desktop:
@@ -137,7 +177,7 @@ def run_engine(ctx: BrowserContext, base: str, label: str, desktop: bool, axe: s
             pg.wait_for_url("**/evidence", timeout=15_000)
     except Exception:
         fails.append(f"{label} {'command palette' if desktop else 'mobile nav'} failed ({pg.url})")
-    pg.close()
+    close(pg)
 
     if errors:
         fails.append(f"{label} console/page errors: {errors[:3]}")
@@ -156,12 +196,21 @@ def main() -> int:
         for name in args.browsers.split(","):
             browser = getattr(p, name).launch()
             for width, height in ((1440, 900), (390, 844)):
-                ctx = browser.new_context(viewport={"width": width, "height": height})
+                viewport = {"width": width, "height": height}
+                label = f"{name}@{width}"
+                # Sequential contexts: Playwright's Firefox driver hangs when an
+                # init-script context and a bypass_csp context are open together.
+                ctx = browser.new_context(viewport=viewport)
+                ctx.add_init_script(CSP_RECORDER)
                 ctx.set_default_timeout(60_000)
-                engine_fails = run_engine(ctx, args.base, f"{name}@{width}", width > 700, axe)
+                engine_fails = run_engine(ctx, args.base, label, width > 700)
+                ctx.close()
+                axe_ctx = browser.new_context(viewport=viewport, bypass_csp=True)
+                axe_ctx.set_default_timeout(60_000)
+                engine_fails += run_axe(axe_ctx, args.base, label, axe)
+                axe_ctx.close()
                 print(f"{name} {browser.version} @{width}: {'ok' if not engine_fails else 'FAIL'}")
                 fails += engine_fails
-                ctx.close()
             browser.close()
         if args.perf:
             browser = p.chromium.launch()
@@ -178,6 +227,7 @@ def main() -> int:
                 print(f"showcase scroll, 390px DPR3, CPU x{rate}: {result}")
                 ctx.close()
             browser.close()
+    print(f"navigation retries after a stalled load: {len(RETRIES)} {RETRIES}")
     for fail in fails:
         print("FAIL:", fail)
     print("browser smoke:", "passed" if not fails else f"{len(fails)} failure(s)")
