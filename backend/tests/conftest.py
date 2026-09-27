@@ -22,6 +22,13 @@ from app.db.session import build_engine
 from app.main import create_app
 from app.seed import seed_demonstration_data
 
+# Tests are hermetic: they never read a developer's repository-root .env or exported
+# VERITAS_* settings (only the explicit test database URL is honoured).
+Settings.model_config["env_file"] = None
+for _name in [n for n in os.environ if n.startswith("VERITAS_")]:
+    if _name != "VERITAS_TEST_DATABASE_URL":
+        os.environ.pop(_name)
+
 
 def _database_url(tmp_dir: Path) -> str:
     url = os.environ.get("VERITAS_TEST_DATABASE_URL")
