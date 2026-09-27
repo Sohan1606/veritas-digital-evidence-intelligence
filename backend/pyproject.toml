@@ -1,0 +1,59 @@
+[project]
+name = "veritas-backend"
+version = "0.1.0"
+description = "VERITAS backend — digital evidence intelligence and verification platform (V1 foundation)"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "fastapi>=0.135,<1.0",          # HTTP API framework
+  "uvicorn>=0.40,<1.0",           # ASGI server
+  "pydantic>=2.12,<3.0",          # schema validation
+  "pydantic-settings>=2.12,<3.0", # environment-based configuration
+  "sqlalchemy>=2.0.40,<2.2",      # ORM / data layer
+  "alembic>=1.16,<2.0",           # schema migrations
+  "psycopg[binary]>=3.2,<4.0",    # PostgreSQL driver
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<10",   # test runner
+  "httpx2>=2.10,<3.0", # HTTP client required by the Starlette/FastAPI TestClient
+  "ruff>=0.13,<1.0",   # lint + format
+  "mypy>=1.18,<3.0",   # static type checking
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["B008"]  # FastAPI dependency injection uses call defaults by design
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"migrations/**" = ["E501"]
+"app/seed.py" = ["E501"]  # synthetic narrative content
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::DeprecationWarning:app.*"]

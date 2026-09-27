@@ -1,0 +1,49 @@
+# Local full-stack run: PostgreSQL + API + web. Only the web port is published.
+#   cp .env.example .env   # set POSTGRES_PASSWORD
+#   docker compose up --build   ->  http://localhost:8080
+# This stack runs in development mode with demonstration access and loads the
+# synthetic demonstration dataset. It is not a production deployment.
+name: veritas
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: veritas
+      POSTGRES_DB: veritas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veritas -d veritas"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    environment:
+      VERITAS_ENVIRONMENT: development
+      VERITAS_ACCESS_MODE: demo
+      VERITAS_DATABASE_URL: postgresql+psycopg://veritas:${POSTGRES_PASSWORD}@db:5432/veritas
+      VERITAS_ALLOWED_HOSTS: backend,localhost,127.0.0.1
+      VERITAS_LOG_LEVEL: INFO
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed && exec uvicorn app.main:get_app --factory --host 0.0.0.0 --port 8000 --no-server-header"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
