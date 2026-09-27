@@ -50,9 +50,9 @@ export function ClaimsPage() {
                 </header>
                 <div className="grid gap-5 px-4 py-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
                   <div>
-                    <p id={`${claim.id}-statement`} className="text-[0.9375rem] leading-relaxed text-fg">
+                    <h2 id={`${claim.id}-statement`} className="text-[0.9375rem] font-normal leading-relaxed text-fg">
                       “{claim.statement}”
-                    </p>
+                    </h2>
                     <h3 className="eyebrow mb-2 mt-5">Related findings</h3>
                     {claim.related_findings.length === 0 ? (
                       <p className="text-xs text-fg-subtle">No finding relates to this claim.</p>

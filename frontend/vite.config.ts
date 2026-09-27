@@ -29,7 +29,8 @@ export default defineConfig(({ mode }) => {
       environment: "jsdom",
       globals: true,
       setupFiles: ["./src/test/setup.ts"],
-      css: false,
+      // CSS is not processed in tests, except raw token reads (see src/test/contrast.test.ts).
+      css: { include: [/styles\.css\?raw$/] },
       restoreMocks: true,
     },
   };

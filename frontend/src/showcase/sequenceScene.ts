@@ -147,7 +147,7 @@ const C = {
   lineStrong: "#283242",
   fg: "#e7ecf3",
   muted: "#a3aebd",
-  subtle: "#748092",
+  subtle: "#818ea2",
   faint: "#505b6b",
   signal: "#5ec4d0",
   signalDeep: "#1d4c53",

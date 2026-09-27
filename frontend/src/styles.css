@@ -24,8 +24,8 @@
 
   --color-fg: #e7ecf3;
   --color-fg-muted: #a3aebd;
-  --color-fg-subtle: #748092;
-  --color-fg-faint: #505b6b;
+  --color-fg-subtle: #818ea2; /* >= 4.9:1 on every ink surface (WCAG AA) */
+  --color-fg-faint: #7888a0; /* >= 4.5:1 on every ink surface; lowest text tier */
 
   --color-signal: #5ec4d0;
   --color-signal-strong: #8fdce4;
