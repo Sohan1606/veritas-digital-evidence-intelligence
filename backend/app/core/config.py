@@ -90,4 +90,6 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # values come from the environment
+    # BaseSettings resolves required fields from environment/.env at runtime.
+    # mypy cannot represent that environment-driven constructor contract.
+    return Settings()  # type: ignore[call-arg]
