@@ -12,9 +12,10 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.core.logging import JsonFormatter
 from app.db.session import get_session
-from app.main import create_app
+from app.main import create_app, get_app
 from app.services import records
 from tests.conftest import make_settings
 
@@ -178,10 +179,64 @@ def test_production_rejects_unsafe_configuration(
     values: dict[str, object] = {
         "database_url": "postgresql+psycopg://u:p@db/veritas",
         "environment": "production",
+        "access_mode": "restricted",  # isolate each case from the access-mode rule
     }
     values.update(overrides)
     with pytest.raises(ValidationError, match=message):
         make_settings(**values)  # type: ignore[arg-type]
+
+
+PRODUCTION_DB = "postgresql+psycopg://u:p@db/veritas"
+
+
+def test_production_rejects_demo_access_mode() -> None:
+    """Invariant: production must use restricted access; demo access is refused."""
+    with pytest.raises(ValidationError, match="VERITAS_ACCESS_MODE must be 'restricted'"):
+        make_settings(PRODUCTION_DB, environment="production", access_mode="demo")
+
+
+def test_production_with_demo_access_fails_closed_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The uvicorn factory refuses to build the application from such an environment."""
+    monkeypatch.setenv("VERITAS_ENVIRONMENT", "production")
+    monkeypatch.setenv("VERITAS_ACCESS_MODE", "demo")
+    monkeypatch.setenv("VERITAS_DATABASE_URL", PRODUCTION_DB)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError, match="VERITAS_ACCESS_MODE"):
+            get_app()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_configuration_errors_do_not_echo_the_database_password() -> None:
+    # Database URL last, as when read from the environment: without hidden input, the
+    # truncated repr of the input in the error message would end with the password.
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate(
+            {
+                "environment": "production",
+                "access_mode": "demo",
+                "database_url": "postgresql+psycopg://veritas:Zq7-secret-pw@db/v",
+            }
+        )
+    assert "VERITAS_ACCESS_MODE" in str(caught.value)
+    assert "secret-pw" not in str(caught.value)
+
+
+def test_production_accepts_restricted_access_and_defaults_to_it() -> None:
+    explicit = make_settings(PRODUCTION_DB, environment="production", access_mode="restricted")
+    assert explicit.access_mode == "restricted"
+    default = Settings.model_validate({"database_url": PRODUCTION_DB, "environment": "production"})
+    assert default.access_mode == "restricted"
+
+
+@pytest.mark.parametrize("environment", ["development", "test"])
+@pytest.mark.parametrize("access_mode", ["restricted", "demo"])
+def test_non_production_permits_both_access_modes(environment: str, access_mode: str) -> None:
+    settings = make_settings(PRODUCTION_DB, environment=environment, access_mode=access_mode)
+    assert settings.access_mode == access_mode
 
 
 def test_database_url_is_secret_in_repr() -> None:
@@ -199,7 +254,7 @@ def test_database_url_has_no_default() -> None:
 
 def test_production_disables_api_docs() -> None:
     settings = make_settings(
-        "postgresql+psycopg://u:p@db/veritas", environment="production", expose_api_docs=True
+        PRODUCTION_DB, environment="production", access_mode="restricted", expose_api_docs=True
     )
     assert settings.api_docs_enabled is False
 

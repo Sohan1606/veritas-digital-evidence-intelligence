@@ -91,10 +91,15 @@ Open http://localhost:5173 (showcase) or http://localhost:5173/app (workspace).
 All settings are `VERITAS_*` variables, read from the environment or a repository-root `.env`
 (see [.env.example](.env.example); placeholders only). Unset values fail closed.
 
+**Production invariant:** `VERITAS_ENVIRONMENT=production` requires
+`VERITAS_ACCESS_MODE=restricted` (the default). Production with `demo` access is rejected at
+configuration validation and the API does not start. `demo` is permitted only in
+`development` and `test`, as in the local Docker Compose stack.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `VERITAS_ENVIRONMENT` | `production` | `development` · `test` · `production` |
-| `VERITAS_ACCESS_MODE` | `restricted` | `restricted` serves no case data; `demo` serves demonstration cases read-only |
+| `VERITAS_ACCESS_MODE` | `restricted` | `restricted` serves no case data; `demo` serves demonstration cases read-only (development/test only; refused in production) |
 | `VERITAS_DATABASE_URL` | — (required) | PostgreSQL URL |
 | `VERITAS_ALLOWED_HOSTS` | `localhost,127.0.0.1` | trusted Host headers |
 | `VERITAS_CORS_ORIGINS` | empty | explicit browser origins (none needed with the proxy) |

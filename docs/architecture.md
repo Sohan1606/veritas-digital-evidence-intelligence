@@ -75,12 +75,14 @@ line style as well as colour.
 Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `logging`).
 
 * **Fail-closed configuration.** Defaults: `production`, debug off, `restricted` access, no
-  CORS origins, docs off. Production refuses debug, wildcard hosts/origins and non-PostgreSQL
-  databases at startup.
+  CORS origins, docs off. Production refuses `demo` access (it must be `restricted`), debug,
+  wildcard hosts/origins and non-PostgreSQL databases at startup. Validation errors do not
+  echo input values, so a misconfiguration cannot print the database password.
 * **Access modes.** V1 has no identity provider (reserved for V2; no custom auth is invented).
   `restricted` returns `401 authentication_unavailable` for all case data. `demo` allows
   anonymous read of cases flagged `demonstration` only; anything else is `404`, so
-  non-demo records are not even confirmed to exist.
+  non-demo records are not even confirmed to exist. `demo` is valid only in `development`
+  and `test`; production must use `restricted`.
 * **Middleware, outermost first:** security headers (CSP, nosniff, frame deny,
   referrer, permissions; HSTS in production) → request context (request ID, structured
   access log, catch-all error envelope) → trusted hosts → CORS (GET only, explicit

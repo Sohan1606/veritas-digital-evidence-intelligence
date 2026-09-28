@@ -3,6 +3,7 @@
 All settings are read from environment variables prefixed with ``VERITAS_`` (or a
 repository-root ``.env`` file during local development). Defaults are chosen to
 fail closed: production environment, debug off, restricted access, no CORS origins.
+Production additionally refuses unsafe combinations at startup, including demo access.
 """
 
 from __future__ import annotations
@@ -32,13 +33,16 @@ class Settings(BaseSettings):
         env_file=REPO_ROOT_ENV,
         env_file_encoding="utf-8",
         extra="ignore",
+        # Validation errors must not echo input values: the database URL holds a password.
+        hide_input_in_errors=True,
     )
 
     environment: Environment = "production"
     debug: bool = False
 
     # "restricted": no identity provider exists in V1, so case data is never served.
-    # "demo": anonymous read-only access to cases flagged as demonstration data only.
+    # "demo": anonymous read-only access to cases flagged as demonstration data only;
+    # permitted in development and test only (production must be "restricted").
     access_mode: AccessMode = "restricted"
 
     database_url: SecretStr = Field(
@@ -65,6 +69,8 @@ class Settings(BaseSettings):
         if self.environment != "production":
             return self
         problems: list[str] = []
+        if self.access_mode != "restricted":
+            problems.append("VERITAS_ACCESS_MODE must be 'restricted' in production")
         if self.debug:
             problems.append("VERITAS_DEBUG must be false in production")
         if "*" in self.cors_origins:
