@@ -7,7 +7,7 @@ import { ReservedCapability } from "../reserved/ReservedCapability";
 
 /**
  * Review queue. Shows what is awaiting human judgment, derived from recorded review
- * statuses and assessments. Recording a review or decision is reserved for V2.
+ * statuses and assessments. Recording a review or decision is not implemented in V2.
  */
 export function ReviewPage() {
   const c = useCase();

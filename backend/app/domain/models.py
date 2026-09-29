@@ -59,10 +59,103 @@ def case_fk() -> Mapped[uuid.UUID]:
     return mapped_column(ForeignKey("cases.id", ondelete="RESTRICT"), index=True)
 
 
+class Organization(PublicIdMixin, TimestampedMixin, Base):
+    __tablename__ = "organizations"
+    __public_id_prefix__ = "ORG"
+
+    name: Mapped[str] = mapped_column(String(160), unique=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+
+
+class User(PublicIdMixin, TimestampedMixin, Base):
+    __tablename__ = "users"
+    __public_id_prefix__ = "USR"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'disabled')", name="user_status"),
+        UniqueConstraint("auth_provider", "auth_subject", name="uq_user_auth_linkage"),
+    )
+
+    username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    password_hash: Mapped[str] = mapped_column(String(512))
+    auth_provider: Mapped[str | None] = mapped_column(String(64))
+    auth_subject: Mapped[str | None] = mapped_column(String(255))
+
+
+class OrganizationMembership(PublicIdMixin, TimestampedMixin, Base):
+    __tablename__ = "organization_memberships"
+    __public_id_prefix__ = "MEM"
+    __table_args__ = (
+        UniqueConstraint("user_id", "organization_id", name="uq_membership_user_org"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="active")
+
+
+class Role(PublicIdMixin, TimestampedMixin, Base):
+    __tablename__ = "roles"
+    __public_id_prefix__ = "ROLE"
+
+    name: Mapped[str] = mapped_column(String(32), unique=True)
+
+
+class RoleAssignment(PublicIdMixin, TimestampedMixin, Base):
+    __tablename__ = "role_assignments"
+    __public_id_prefix__ = "RLA"
+    __table_args__ = (
+        UniqueConstraint("membership_id", "role_id", "case_id", name="uq_role_assignment_scope"),
+    )
+
+    membership_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organization_memberships.id", ondelete="RESTRICT"), index=True
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("roles.id", ondelete="RESTRICT"), index=True
+    )
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("cases.id", ondelete="RESTRICT"), index=True
+    )
+
+
+class UserSession(PublicIdMixin, Base):
+    __tablename__ = "user_sessions"
+    __public_id_prefix__ = "SES"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    csrf_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(index=True)
+    revoked_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    created_by: Mapped[str] = mapped_column(String(ACTOR_LENGTH))
+
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+
+    bucket: Mapped[str] = mapped_column(String(64), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    window_started_at: Mapped[datetime]
+    locked_until: Mapped[datetime | None]
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class Case(PublicIdMixin, TimestampedMixin, Base):
     __tablename__ = "cases"
     __public_id_prefix__ = "CASE"
 
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), index=True
+    )
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
     state: Mapped[CaseState] = mapped_column(state_column(CaseState), default=CaseState.OPEN)
@@ -257,6 +350,9 @@ class AuditEvent(PublicIdMixin, Base):
     entity_public_id: Mapped[str | None] = mapped_column(String(PUBLIC_ID_LENGTH))
     case_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cases.id", ondelete="RESTRICT"), index=True
+    )
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), index=True
     )
     request_id: Mapped[str | None] = mapped_column(String(64))
     details: Mapped[dict[str, Any]] = mapped_column(default=dict)

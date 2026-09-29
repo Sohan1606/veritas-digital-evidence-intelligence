@@ -2,19 +2,29 @@ import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { useResource } from "../api/useResource";
 import type { CaseSummary, ListResponse, SystemInfo } from "../api/types";
-import { Dialog, DemoNotice, Icon, Kbd } from "../design-system";
+import { Dialog, DemoNotice, Icon, Kbd, StateView } from "../design-system";
 import { CommandPalette } from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { CASE_NAV, WORKSPACE_NAV, casePath, useActiveCaseId } from "./navigation";
 import { NotificationButton, NotificationProvider, useNotifications } from "./notifications";
 import { Sidebar } from "./Sidebar";
+import { SessionProvider, useSession } from "../features/auth/AuthContext";
+import { SignInPage } from "../features/auth/SignInPage";
 
 export function AppShell() {
   return (
-    <NotificationProvider>
-      <ShellLayout />
-    </NotificationProvider>
+    <SessionProvider>
+      <SessionGate />
+    </SessionProvider>
   );
+}
+
+function SessionGate() {
+  const { state, reload } = useSession();
+  if (state.status === "loading") return <StateView state="loading" title="Checking session…" />;
+  if (state.status === "error") return <main className="grid min-h-dvh place-items-center bg-ink-950 p-6"><StateView state="unavailable" title="VERITAS identity service unavailable." action={<button type="button" onClick={() => void reload()} className="text-sm text-signal underline">Retry</button>}>{state.error.message}</StateView></main>;
+  if (state.status === "signed-out") return <SignInPage />;
+  return <NotificationProvider><ShellLayout /></NotificationProvider>;
 }
 
 function ShellLayout() {
@@ -163,14 +173,14 @@ function useSystemNotices() {
           id: "demo-mode",
           tone: "warn",
           title: "Demonstration mode",
-          detail: "Anonymous, read-only access to demonstration cases. No authentication exists in V1.",
+          detail: "Explicit development demonstration access. Operational access requires a provisioned identity.",
         });
       } else {
         push({
           id: "restricted-mode",
           tone: "neutral",
           title: "Restricted mode",
-          detail: "Case data is unavailable until investigator identity exists (V2).",
+          detail: "Sign in with a provisioned account to access authorized case records.",
         });
       }
       if (system.data.database.schema_revision !== system.data.database.expected_revision) {

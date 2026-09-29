@@ -96,7 +96,7 @@ class RequestContextMiddleware:
                     "event": "http_request",
                     "method": scope.get("method"),
                     # Route template (e.g. /api/v1/cases/{case_id}) — never the query string.
-                    "route": getattr(route, "path", scope.get("path")),
+                    "route": getattr(route, "path", "unmatched"),
                     "status_code": status_holder["code"],
                     "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                 },

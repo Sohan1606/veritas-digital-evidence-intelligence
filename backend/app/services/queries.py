@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
-from app.core.security import Principal, can_read_case, readable_demonstration_only
+from app.core.security import Principal, has_case_capability
 from app.domain.enums import FindingReviewStatus, NodeType, RelationshipType
 from app.domain.models import (
     AnalysisRun,
@@ -56,9 +56,21 @@ def get_readable_case(session: Session, principal: Principal, case_public_id: st
     case = session.execute(
         select(Case).where(Case.public_id == case_public_id)
     ).scalar_one_or_none()
-    if case is None or not can_read_case(principal, is_demonstration=case.is_demonstration):
+    if case is None or not has_case_capability(session, principal, case, "case:read"):
         # Unreadable cases are indistinguishable from nonexistent ones.
-        raise NotFoundError(f"Case {case_public_id} was not found")
+        from app.services.records import record_security_event
+
+        record_security_event(
+            session,
+            actor=principal.subject,
+            action="authorization.denied",
+            entity_type="case",
+            entity_public_id=case.public_id if case is not None else None,
+            details={"capability": "case:read"},
+            organization_id=case.organization_id if case is not None else None,
+        )
+        session.commit()
+        raise NotFoundError("Case was not found")
     return case
 
 
@@ -97,13 +109,13 @@ def _summary_fields(session: Session, case: Case) -> dict[str, Any]:
 
 def list_cases(session: Session, principal: Principal) -> list[CaseSummary]:
     stmt = select(Case).order_by(Case.created_at, Case.public_id)
-    if readable_demonstration_only(principal):
+    if principal.kind == "demonstration_viewer":
         stmt = stmt.where(Case.is_demonstration.is_(True))
     cases = session.execute(stmt).scalars().all()
     return [
         CaseSummary(**_summary_fields(session, c))
         for c in cases
-        if can_read_case(principal, is_demonstration=c.is_demonstration)
+        if has_case_capability(session, principal, c, "case:read")
     ]
 
 

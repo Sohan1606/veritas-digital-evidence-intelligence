@@ -83,7 +83,7 @@ export function FindingDetail({ finding, caseId, demonstration }: { finding: Fin
           <InspectionPanel title="Challenge" icon="challenge" footer="No challenge can be recorded in V1.">
             <p>
               Challenging a finding records a Review action attributed to an authenticated investigator, with the grounds for the
-              challenge. Investigator identity and Review are reserved for later versions, so this action is not available yet.
+              challenge. Review recording is not implemented in this version, so this action is not available yet.
             </p>
           </InspectionPanel>
         )}
@@ -168,7 +168,7 @@ export function FindingDetail({ finding, caseId, demonstration }: { finding: Fin
           </span>
         </div>
         <p className="mt-2 text-xs text-fg-subtle">
-          A finding is not relied upon until a person has reviewed it. Recording reviews requires investigator identity (V2).
+          A finding is not relied upon until a person has reviewed it. Review recording is not implemented in V2.
         </p>
       </Section>
     </article>

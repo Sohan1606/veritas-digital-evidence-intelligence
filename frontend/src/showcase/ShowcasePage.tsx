@@ -48,7 +48,7 @@ export default function ShowcasePage() {
             </h1>
             <p className="mt-8 max-w-xl text-[0.9375rem] leading-relaxed text-fg-muted sm:text-base">
               A workspace for trained investigators to organize evidence, trace findings to their basis and keep every
-              conclusion open to review. This is the V1 foundation: case records, evidence profiles, findings and the
+              conclusion open to review. This is the verified V1 foundation, extended by V2 identity and access controls: case records, evidence profiles, findings and the
               case knowledge graph — read-only, on synthetic demonstration data.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-3">

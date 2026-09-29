@@ -2,9 +2,9 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { ApiError, apiGet } from "./client";
 
 /**
- * Read-only resource cache shared by every view, so the sidebar, command palette and
- * pages reuse one request per path. V1 data is read-only, so entries never go stale
- * within a session; `reload()` exists for error recovery.
+ * GET resources are cached only inside the current authenticated session boundary.
+ * Session transitions clear the cache, so no protected response can be reused by
+ * another principal while pages within an unchanged session still share requests.
  */
 
 export type ResourceState<T> =
@@ -17,6 +17,7 @@ type Entry = { state: ResourceState<unknown>; promise?: Promise<void> };
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 let version = 0;
+let identityScope = "anonymous";
 
 function notify() {
   version += 1;
@@ -28,12 +29,17 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
+function cacheKey(scope: string, path: string): string {
+  return `${scope}\u0000${path}`;
+}
+
 function toApiError(error: unknown): ApiError {
   return error instanceof ApiError ? error : new ApiError("server", "Unexpected client error.", null, null, null);
 }
 
-function load(path: string) {
-  const existing = cache.get(path);
+function load(path: string, scope: string) {
+  const key = cacheKey(scope, path);
+  const existing = cache.get(key);
   if (existing && (existing.promise || existing.state.status === "ready")) return;
   const entry: Entry = { state: { status: "loading" } };
   entry.promise = apiGet<unknown>(path)
@@ -45,32 +51,45 @@ function load(path: string) {
     })
     .finally(() => {
       entry.promise = undefined;
+      // An old in-flight request may finish after an identity switch. It only mutates
+      // its detached Entry; the new scope has a different key and cannot read it.
       notify();
     });
-  cache.set(path, entry);
+  cache.set(key, entry);
+}
+
+/** Replace the identity boundary and drop every cached/in-flight resource reference. */
+export function setResourceIdentityScope(scope: string) {
+  if (scope === identityScope) return;
+  identityScope = scope;
+  cache.clear();
+  notify();
 }
 
 /** Subscribe to a GET resource. Pass `null` to skip fetching. */
 export function useResource<T>(path: string | null): ResourceState<T> & { reload: () => void } {
   useSyncExternalStore(subscribe, () => version);
+  const scope = identityScope;
+  const key = path ? cacheKey(scope, path) : null;
   useEffect(() => {
-    if (path) load(path);
-  }, [path]);
+    if (path) load(path, scope);
+  }, [path, scope]);
 
   const reload = useCallback(() => {
-    if (!path) return;
-    cache.delete(path);
-    load(path);
+    if (!path || !key) return;
+    cache.delete(key);
+    load(path, scope);
     notify();
-  }, [path]);
+  }, [path, key, scope]);
 
-  if (!path) return { status: "loading", reload };
-  const state = (cache.get(path)?.state ?? { status: "loading" }) as ResourceState<T>;
+  if (!path || !key) return { status: "loading", reload };
+  const state = (cache.get(key)?.state ?? { status: "loading" }) as ResourceState<T>;
   return { ...state, reload };
 }
 
-/** Test helper: clear all cached resources. */
+/** Test helper: reset cache and return to an isolated anonymous scope. */
 export function resetResourceCache() {
   cache.clear();
+  identityScope = "anonymous";
   notify();
 }

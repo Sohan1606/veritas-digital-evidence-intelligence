@@ -1,4 +1,5 @@
 import { Suspense, lazy } from "react";
+import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "./app-shell/AppShell";
 import { ErrorBoundary } from "./app-shell/ErrorBoundary";
@@ -12,8 +13,11 @@ import { EvidencePage } from "./features/evidence/EvidencePage";
 import { ExaminationPage } from "./features/examination/ExaminationPage";
 import { FindingsPage } from "./features/findings/FindingsPage";
 import { GraphPage } from "./features/graph/GraphPage";
-import { MyWorkPage, NotFoundPage, ReportsPage, TimelinePage } from "./features/reserved/ReservedPages";
+import { NotFoundPage, ReportsPage, TimelinePage } from "./features/reserved/ReservedPages";
 import { ReviewPage } from "./features/review/ReviewPage";
+import { IdentityAdminPage } from "./features/admin/IdentityAdminPage";
+import { SecurityAuditPage } from "./features/admin/SecurityAuditPage";
+import { useSession } from "./features/auth/AuthContext";
 
 // The showcase carries the canvas sequence; the investigator shell never loads it.
 const ShowcasePage = lazy(() => import("./showcase/ShowcasePage"));
@@ -31,7 +35,8 @@ export function AppRoutes() {
       />
       <Route path="/app" element={<AppShell />}>
         <Route index element={<Navigate to="cases" replace />} />
-        <Route path="my-work" element={<MyWorkPage />} />
+        <Route path="admin/users" element={<CapabilityPage capability="users:read"><IdentityAdminPage /></CapabilityPage>} />
+        <Route path="admin/security-audit" element={<CapabilityPage capability="security_audit:read"><SecurityAuditPage /></CapabilityPage>} />
         <Route path="cases" element={<CasesPage />} />
         <Route path="cases/:caseId" element={<CaseLayout />}>
           <Route index element={<CaseOverview />} />
@@ -52,6 +57,14 @@ export function AppRoutes() {
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
+}
+
+function CapabilityPage({ capability, children }: { capability: string; children: ReactNode }) {
+  const { state } = useSession();
+  if (state.status !== "ready" || !state.session.capabilities.includes(capability)) {
+    return <StateView state="unavailable" title="Access denied.">This identity does not have the required capability.</StateView>;
+  }
+  return <>{children}</>;
 }
 
 export function App() {

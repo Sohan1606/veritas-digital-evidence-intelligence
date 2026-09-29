@@ -17,6 +17,7 @@ import type {
   Finding,
   ListResponse,
   SystemInfo,
+  SessionInfo,
 } from "../api/types";
 
 const T = "2026-01-15T09:30:00Z";
@@ -145,7 +146,7 @@ export const systemInfo: SystemInfo = {
   database: { dialect: "sqlite", schema_revision: "0001", expected_revision: "0001" },
   capabilities: [
     { key: "case_records", label: "Case records", status: "available", note: "Read-only." },
-    { key: "identity", label: "Investigator identity & access control", status: "reserved", note: "Planned for V2. V1 has no authentication." },
+    { key: "identity", label: "User identity & access control", status: "available", note: "Provisioned identity and role-based authorization." },
     { key: "examination", label: "Automated examination", status: "reserved", note: "No examination methods are executable in V1." },
     { key: "timeline", label: "Timeline reconstruction", status: "reserved", note: "Requires temporal observations." },
     { key: "review", label: "Review & decisions", status: "reserved", note: "Requires investigator identity." },
@@ -153,8 +154,20 @@ export const systemInfo: SystemInfo = {
   ],
 };
 
+/** Authenticated V2 system response fixture matching backend principal="user". */
+export const authenticatedSystemInfo: SystemInfo = {
+  ...systemInfo,
+  access_mode: "restricted",
+  principal: "user",
+};
+
 export const ROUTES: Record<string, unknown> = {
   "/api/v1/system": systemInfo,
+  "/api/v1/auth/session": {
+    authenticated: false, user_id: null, display_name: null, organization_ids: [], roles: [],
+    capabilities: ["case:read"], case_capabilities: { "*": ["case:read", "evidence:read", "findings:read", "claims:read", "graph:read", "review:read", "case_audit:read", "examination:read"] },
+    session_id: null, expires_at: null, demonstration: true,
+  } satisfies SessionInfo,
   "/api/v1/cases": list([caseDetail]),
   "/api/v1/cases/CASE-001": caseDetail,
   "/api/v1/cases/CASE-001/evidence": list(evidence),

@@ -217,8 +217,48 @@ export interface SystemInfo {
   api_version: "v1";
   environment: string;
   access_mode: string;
-  principal: "demonstration_viewer" | null;
+  principal: "demonstration_viewer" | "user" | null;
   uptime_seconds: number;
   database: { dialect: string; schema_revision: string | null; expected_revision: string | null };
   capabilities: Capability[];
+}
+
+export interface SessionInfo {
+  authenticated: boolean;
+  user_id: string | null;
+  display_name: string | null;
+  organization_ids: string[];
+  roles: string[];
+  capabilities: string[];
+  case_capabilities: Record<string, string[]>;
+  session_id: string | null;
+  expires_at: string | null;
+  demonstration: boolean;
+}
+
+export interface IdentityRole {
+  id: string;
+  name: string;
+  capabilities: string[];
+  assignable_in_console: boolean;
+}
+
+export interface IdentityUser {
+  id: string;
+  username: string;
+  display_name: string;
+  status: "active" | "disabled";
+  organization_id: string;
+  roles: string[];
+  case_assignments: { role_id: string; role: string; case_id: string | null }[];
+}
+
+export interface SecurityAuditEvent {
+  id: string;
+  occurred_at: string;
+  actor: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  details: Record<string, unknown>;
 }

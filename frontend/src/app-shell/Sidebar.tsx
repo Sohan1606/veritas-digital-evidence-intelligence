@@ -1,8 +1,9 @@
-import { Link, NavLink } from "react-router";
+import { Link, NavLink, useNavigate } from "react-router";
 import { useResource } from "../api/useResource";
 import type { CaseDetail, SystemInfo } from "../api/types";
-import { Icon, StateGlyph, Tooltip, VeritasMark } from "../design-system";
+import { Icon, StateGlyph, VeritasMark } from "../design-system";
 import { CASE_NAV, WORKSPACE_NAV, casePath, type NavItem } from "./navigation";
+import { useSession } from "../features/auth/AuthContext";
 
 function itemClass({ isActive }: { isActive: boolean }) {
   return `group relative flex h-8 items-center gap-2.5 rounded-sm px-2.5 text-[0.8125rem] transition-micro ${
@@ -28,18 +29,22 @@ function Trailing({ item, reserved, counts }: { item: NavItem; reserved: boolean
 
 export function Sidebar({ activeCaseId, onNavigate }: { activeCaseId: string | null; onNavigate?: () => void }) {
   const system = useResource<SystemInfo>("/api/v1/system");
+  const auth = useSession();
   const activeCase = useResource<CaseDetail>(activeCaseId ? `/api/v1/cases/${activeCaseId}` : null);
   const reserved = new Set(
     system.status === "ready" ? system.data.capabilities.filter((c) => c.status === "reserved").map((c) => c.key) : [],
   );
   const counts = activeCase.status === "ready" ? activeCase.data.counts : undefined;
+  const casePermissions = auth.state.status === "ready"
+    ? auth.state.session.case_capabilities[activeCaseId ?? ""] ?? auth.state.session.case_capabilities["*"] ?? []
+    : [];
 
   return (
     <div className="flex h-full flex-col">
       <Link to="/" onClick={onNavigate} className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-4 text-fg">
         <VeritasMark />
         <span className="font-mono text-[0.8125rem] font-medium tracking-[0.32em]">VERITAS</span>
-        <span className="ml-auto rounded-xs border border-line px-1 font-mono text-[0.625rem] text-fg-subtle">V1</span>
+        <span className="ml-auto rounded-xs border border-line px-1 font-mono text-[0.625rem] text-fg-subtle">V2</span>
       </Link>
 
       <nav aria-label="Primary" className="flex-1 overflow-y-auto px-2.5 py-4">
@@ -54,6 +59,15 @@ export function Sidebar({ activeCaseId, onNavigate }: { activeCaseId: string | n
             </li>
           ))}
         </ul>
+        {auth.state.status === "ready" && auth.state.session.capabilities.includes("users:read") && (
+          <div className="mt-5 border-t border-line pt-3">
+            <p className="eyebrow px-2.5 pb-2">Administration</p>
+            <ul className="space-y-0.5">
+              <li><NavLink to="/app/admin/users" className={itemClass} onClick={onNavigate}><Icon name="review" />Identity management</NavLink></li>
+              {auth.state.session.capabilities.includes("security_audit:read") && <li><NavLink to="/app/admin/security-audit" className={itemClass} onClick={onNavigate}><Icon name="audit" />Security audit</NavLink></li>}
+            </ul>
+          </div>
+        )}
 
         <div className="mb-2 mt-6 flex items-center justify-between px-2.5">
           <span className="eyebrow">Active case</span>
@@ -65,7 +79,7 @@ export function Sidebar({ activeCaseId, onNavigate }: { activeCaseId: string | n
         </div>
         {activeCaseId ? (
           <ul className="space-y-0.5">
-            {CASE_NAV.map((item) => (
+            {CASE_NAV.filter((item) => !item.permission || casePermissions.includes(item.permission)).map((item) => (
               <li key={item.key}>
                 <NavLink to={casePath(activeCaseId, item.segment)} className={itemClass} onClick={onNavigate}>
                   <Icon name={item.icon} className="shrink-0 opacity-80" />
@@ -88,31 +102,28 @@ export function Sidebar({ activeCaseId, onNavigate }: { activeCaseId: string | n
 }
 
 function SessionFooter({ system, failed }: { system: SystemInfo | null; failed: boolean }) {
-  const label = failed
-    ? "API unreachable"
-    : !system
-      ? "Connecting…"
-      : system.principal === "demonstration_viewer"
-        ? "Demonstration viewer"
-        : "No session";
-  const tone = failed ? "risk" : system ? "ok" : "neutral";
+  const { state, signOut } = useSession();
+  const navigate = useNavigate();
+  const leaveIdentity = () => {
+    void signOut()
+      .then(() => navigate("/app/cases", { replace: true }))
+      .catch(() => undefined);
+  };
+  const signedIn = state.status === "ready" && state.session.authenticated;
+  const label = failed ? "API unreachable" : signedIn ? state.session.display_name ?? state.session.user_id ?? "Signed in" : state.status === "ready" && state.session.demonstration ? "Demonstration viewer" : "Session unavailable";
+  const subline = signedIn
+    ? `${state.session.user_id} · ${state.session.roles.join(", ") || "no roles"}`
+    : system ? `read-only · ${system.access_mode} mode` : "session state unknown";
   return (
     <div className="border-t border-line px-4 py-3">
       <div className="flex items-center gap-2">
-        <StateGlyph glyph={failed ? "cross" : system ? "filled" : "ring"} tone={tone} size={8} />
-        <span className="text-xs text-fg">{label}</span>
-        <Tooltip
-          side="top"
-          content="V1 has no authentication. In demonstration mode an anonymous, read-only viewer may read demonstration cases only."
-        >
-          <button type="button" aria-label="About this session" className="ml-auto rounded-xs p-0.5 text-fg-subtle hover:text-fg">
-            <Icon name="info" size={13} />
-          </button>
-        </Tooltip>
+        <StateGlyph glyph={failed ? "cross" : state.status === "ready" ? "filled" : "ring"} tone={failed ? "risk" : state.status === "ready" ? "ok" : "neutral"} size={8} />
+        <span className="truncate text-xs text-fg">{label}</span>
+        <button type="button" onClick={leaveIdentity} className="ml-auto rounded-xs px-1.5 py-1 text-xs text-fg-subtle hover:text-fg" aria-label={signedIn ? "Sign out" : "Sign in"}>
+          {signedIn ? "Sign out" : "Sign in"}
+        </button>
       </div>
-      <div className="mt-1 font-mono text-2xs text-fg-subtle">
-        {system ? `unauthenticated · ${system.access_mode} mode · api ${system.api_version}` : "session state unknown"}
-      </div>
+      <div className="mt-1 truncate font-mono text-2xs text-fg-subtle">{subline}</div>
     </div>
   );
 }

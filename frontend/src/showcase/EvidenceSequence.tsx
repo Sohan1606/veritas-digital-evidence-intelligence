@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CAPTIONS, STAGES, STAGE_SNAPSHOTS, buildScene, captionFor, clamp01, drawScene, frameFor, stageFor, type Scene } from "./sequenceScene";
 
-const SEQUENCE_LABEL = "Concept sequence — automated examination is not part of V1";
+const SEQUENCE_LABEL = "Concept sequence — automated examination is not part of V2";
 
 function usePrefersReducedMotion(): boolean {
   const query = "(prefers-reduced-motion: reduce)";

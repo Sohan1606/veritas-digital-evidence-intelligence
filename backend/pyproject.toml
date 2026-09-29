@@ -12,6 +12,7 @@ dependencies = [
   "sqlalchemy>=2.0.40,<2.2",      # ORM / data layer
   "alembic>=1.16,<2.0",           # schema migrations
   "psycopg[binary]>=3.2,<4.0",    # PostgreSQL driver
+  "argon2-cffi>=23.1,<26.0",      # established Argon2id password hashing
 ]
 
 [project.optional-dependencies]

@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import Engine, text
+from sqlalchemy.orm import Session
 
 from app import __version__
 from app.core.config import Settings
-from app.core.errors import VeritasError
-from app.core.security import resolve_principal
+from app.core.security import Principal, get_optional_principal
 from app.db.migrations import current_revision
+from app.db.session import get_session
 from app.schemas import CapabilityOut, DatabaseInfo, HealthOut, ReadinessOut, SystemInfo
 
 logger = logging.getLogger("veritas.system")
@@ -51,9 +52,10 @@ CAPABILITIES: tuple[CapabilityOut, ...] = (
     ),
     CapabilityOut(
         key="identity",
-        label="Investigator identity & access control",
-        status="reserved",
-        note="Planned for V2. V1 has no authentication.",
+        label="User identity & access control",
+        status="available",
+        note="Provisioned identities, server-side sessions, role capabilities and case-level "
+        "authorization.",
     ),
     CapabilityOut(
         key="evidence_intake",
@@ -121,13 +123,14 @@ def ready(request: Request) -> JSONResponse:
 
 
 @router.get("/api/v1/system", response_model=SystemInfo, tags=["system"])
-def system_info(request: Request) -> SystemInfo:
+def system_info(
+    request: Request,
+    principal: Annotated[Principal | None, Depends(get_optional_principal)],
+    session: Annotated[Session, Depends(get_session)],
+) -> SystemInfo:
     settings: Settings = request.app.state.settings
     engine: Engine = request.app.state.engine
-    try:
-        principal = resolve_principal(settings).kind
-    except VeritasError:
-        principal = None
+    principal_kind = principal.kind if principal is not None else None
     try:
         revision = current_revision(engine)
     except Exception:
@@ -138,7 +141,7 @@ def system_info(request: Request) -> SystemInfo:
         api_version="v1",
         environment=settings.environment,
         access_mode=settings.access_mode,
-        principal=principal,
+        principal=principal_kind,
         uptime_seconds=round(time.monotonic() - request.app.state.started_monotonic, 1),
         database=DatabaseInfo(
             dialect=engine.dialect.name,

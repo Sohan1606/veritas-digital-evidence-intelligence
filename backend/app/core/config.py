@@ -6,8 +6,12 @@ fail closed: production environment, debug off, restricted access, no CORS origi
 Production additionally refuses unsafe combinations at startup, including demo access.
 """
 
+# Preserve the V1 BaseSettings constructor correction; mypy 2.x now considers it redundant.
+# mypy: disable-error-code="unused-ignore"
+
 from __future__ import annotations
 
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
@@ -40,9 +44,8 @@ class Settings(BaseSettings):
     environment: Environment = "production"
     debug: bool = False
 
-    # "restricted": no identity provider exists in V1, so case data is never served.
-    # "demo": anonymous read-only access to cases flagged as demonstration data only;
-    # permitted in development and test only (production must be "restricted").
+    # "restricted": provisioned authentication and explicit backend authorization required.
+    # "demo": anonymous, read-only access to flagged synthetic cases in development/test only.
     access_mode: AccessMode = "restricted"
 
     database_url: SecretStr = Field(
@@ -54,15 +57,29 @@ class Settings(BaseSettings):
         default_factory=lambda: ["localhost", "127.0.0.1"]
     )
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     max_request_bytes: int = Field(default=1_048_576, ge=1_024, le=16_777_216)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     expose_api_docs: bool = False
+    session_ttl_minutes: int = Field(default=720, ge=5, le=1_440)
+    login_failure_limit: int = Field(default=5, ge=3, le=20)
+    login_lockout_minutes: int = Field(default=15, ge=1, le=120)
 
-    @field_validator("allowed_hosts", "cors_origins", mode="before")
+    @field_validator("allowed_hosts", "cors_origins", "trusted_proxy_ips", mode="before")
     @classmethod
     def _parse_csv(cls, value: object) -> object:
         return _split_csv(value)
+
+    @field_validator("trusted_proxy_ips")
+    @classmethod
+    def _validate_trusted_proxy_ips(cls, values: list[str]) -> list[str]:
+        try:
+            for value in values:
+                ipaddress.ip_network(value, strict=False)
+        except ValueError as exc:
+            raise ValueError("VERITAS_TRUSTED_PROXY_IPS must contain IPs or CIDRs") from exc
+        return values
 
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> Settings:

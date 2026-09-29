@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
+from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import DomainRuleViolation
@@ -30,6 +32,9 @@ from app.domain.models import (
     Finding,
     Objective,
     Observation,
+    Organization,
+    OrganizationMembership,
+    User,
 )
 from app.domain.relationships import is_assertable
 from app.domain.values import PROFILE_SECTIONS, AlternativeExplanation, ProfileSection
@@ -46,6 +51,7 @@ def record_audit_event(
     entity_public_id: str | None,
     case: Case | None,
     details: Mapping[str, Any] | None = None,
+    organization_id: UUID | None = None,
 ) -> AuditEvent:
     """Append an Audit Event. ``details`` must contain identifiers/metadata only, never content."""
     event = AuditEvent(
@@ -54,6 +60,7 @@ def record_audit_event(
         entity_type=entity_type,
         entity_public_id=entity_public_id,
         case_id=case.id if case else None,
+        organization_id=case.organization_id if case else organization_id,
         request_id=request_id_var.get(),
         details=dict(details or {}),
     )
@@ -70,7 +77,19 @@ def _persist(session: Session, entity: Any) -> None:
 def create_case(
     session: Session, *, actor: str, title: str, summary: str | None, is_demonstration: bool
 ) -> Case:
+    organization = (
+        session.execute(
+            select(Organization)
+            .where(Organization.status == "active")
+            .order_by(Organization.public_id)
+        )
+        .scalars()
+        .first()
+    )
+    if organization is None:
+        raise DomainRuleViolation("No active Organization is provisioned")
     case = Case(
+        organization_id=organization.id,
         title=title,
         summary=summary,
         is_demonstration=is_demonstration,
@@ -339,3 +358,53 @@ def record_assessment(
         details={"claim": claim.public_id},
     )
     return assessment
+
+
+def organization_id_for_user(session: Session, user_id: UUID) -> UUID | None:
+    """Return an organization only when the active identity has one unambiguous scope."""
+    organization_ids = (
+        session.execute(
+            select(OrganizationMembership.organization_id).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.status == "active",
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    return organization_ids[0] if len(organization_ids) == 1 else None
+
+
+def record_security_event(
+    session: Session,
+    *,
+    actor: str,
+    action: str,
+    entity_type: str,
+    entity_public_id: str | None = None,
+    details: Mapping[str, Any] | None = None,
+    organization_id: UUID | None = None,
+) -> AuditEvent:
+    """Append a security event to canonical AuditEvent with explicit organization scope.
+
+    User-attributed events inherit scope only when exactly one active membership exists.
+    Unrecognized/system events remain NULL-scoped and are intentionally hidden from
+    organization-scoped security-audit readers.
+    """
+    if organization_id is None and actor.startswith("USR-"):
+        user_id = session.execute(
+            select(User.id).where(User.public_id == actor)
+        ).scalar_one_or_none()
+        if user_id is not None:
+            organization_id = organization_id_for_user(session, user_id)
+    return record_audit_event(
+        session,
+        actor=actor,
+        action=action,
+        entity_type=entity_type,
+        entity_public_id=entity_public_id,
+        case=None,
+        details=details,
+        organization_id=organization_id,
+    )

@@ -17,6 +17,7 @@ import {
   type IconName,
 } from "../../design-system";
 import { casePath } from "../../app-shell/navigation";
+import { useSession } from "../auth/AuthContext";
 import { useCase } from "./CaseLayout";
 
 interface Tile {
@@ -32,7 +33,11 @@ interface Tile {
 
 export function CaseOverview() {
   const c = useCase();
+  const auth = useSession();
   const n = c.counts;
+  const caseCapabilities = auth.state.status === "ready"
+    ? auth.state.session.case_capabilities[c.id] ?? auth.state.session.case_capabilities["*"] ?? []
+    : [];
   const tiles: Tile[] = [
     { key: "evidence", label: "Evidence", icon: "evidence", segment: "evidence", value: n.evidence, unit: "registered", detail: "Metadata records · content not ingested" },
     { key: "examination", label: "Examination", icon: "examination", segment: "examination", value: n.analysis_runs, unit: "analysis runs", detail: "No examination methods are executable in V1" },
@@ -40,7 +45,7 @@ export function CaseOverview() {
     { key: "claims", label: "Claims", icon: "claim", segment: "claims", value: n.claims, unit: "recorded", detail: `${n.assessments} assessment${n.assessments === 1 ? "" : "s"} recorded` },
     { key: "timeline", label: "Timeline", icon: "timeline", segment: "timeline", value: null, unit: "", detail: "Timeline reconstruction is reserved", reserved: true },
     { key: "graph", label: "Graph", icon: "graph", segment: "graph", value: 1 + n.evidence + n.observations + n.findings + n.claims, unit: "nodes", detail: `${n.relationships} asserted relationships` },
-    { key: "review", label: "Review", icon: "review", segment: "review", value: n.findings_awaiting_review, unit: "awaiting review", detail: "Recording reviews requires identity (V2)" },
+    { key: "review", label: "Review", icon: "review", segment: "review", value: n.findings_awaiting_review, unit: "awaiting review", detail: "Review recording is not implemented in V2" },
     { key: "report", label: "Report", icon: "report", segment: "reports", value: null, unit: "", detail: "Report generation is reserved", reserved: true },
   ];
 
@@ -125,7 +130,7 @@ export function CaseOverview() {
         </div>
 
         <aside className="space-y-6" aria-label="Case context">
-          <RecentAudit caseId={c.id} />
+          {caseCapabilities.includes("case_audit:read") && <RecentAudit caseId={c.id} />}
           <Panel labelledBy="origin-title">
             <PanelHeader id="origin-title" eyebrow="Data origin" title={c.demonstration ? "Demonstration dataset" : "Case records"} />
             <div className="space-y-4 px-4 py-4">

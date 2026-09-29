@@ -69,8 +69,15 @@ function LoadingBar() {
 export function ApiErrorView({ error, subject, onRetry, compact }: { error: ApiError; subject: string; onRetry?: () => void; compact?: boolean }) {
   if (error.kind === "restricted") {
     return (
-      <StateView state="unavailable" title={`${subject} unavailable — access restricted.`} requestId={error.requestId} compact={compact}>
-        Investigator authentication does not exist in this version, and this deployment is not in demonstration mode.
+      <StateView state="unavailable" title={`${subject} unavailable — sign-in required.`} requestId={error.requestId} compact={compact}>
+        Sign in with an active, provisioned account to continue.
+      </StateView>
+    );
+  }
+  if (error.kind === "forbidden") {
+    return (
+      <StateView state="unavailable" title={`${subject} unavailable — access denied.`} requestId={error.requestId} compact={compact}>
+        This identity does not have the required capability for this action.
       </StateView>
     );
   }

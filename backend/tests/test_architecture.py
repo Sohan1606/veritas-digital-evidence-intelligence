@@ -23,6 +23,12 @@ CANONICAL_PREFIXES = {
     "Assessment": "ASM",
     "CaseRelationship": "REL",
     "AuditEvent": "AUD",
+    "Organization": "ORG",
+    "OrganizationMembership": "MEM",
+    "Role": "ROLE",
+    "RoleAssignment": "RLA",
+    "User": "USR",
+    "UserSession": "SES",
 }
 
 CASE_SCOPED_TABLES = {
@@ -65,12 +71,16 @@ def test_evidence_profile_is_owned_by_evidence() -> None:
 
 def test_persistent_entities_have_ids_timestamps_and_actors() -> None:
     for name, table in Base.metadata.tables.items():
-        if name == "identifier_sequences":
+        if name in {"identifier_sequences", "login_attempts"}:
             continue
         assert "id" in table.c, name
         if name == "audit_events":
             assert {"occurred_at", "actor"} <= set(table.c.keys())
             assert "updated_at" not in table.c  # append-only
+            continue
+        if name == "user_sessions":
+            assert {"created_at", "created_by", "expires_at", "revoked_at"} <= set(table.c.keys())
+            assert "updated_at" not in table.c
             continue
         assert {"created_at", "updated_at", "created_by", "updated_by"} <= set(table.c.keys()), name
 
@@ -95,14 +105,22 @@ def _api_routes(app: FastAPI) -> list[APIRoute]:
     return [r for r in app.routes if isinstance(r, APIRoute)]
 
 
-def test_api_is_read_only_in_v1(app: FastAPI) -> None:
+def test_case_data_api_remains_read_only(app: FastAPI) -> None:
     for route in _api_routes(app):
-        assert route.methods == {"GET"}, f"{route.path} exposes {route.methods}"
+        methods = route.methods
+        assert methods is not None
+        if route.path.startswith("/api/v1/cases"):
+            assert methods == {"GET"}, f"{route.path} exposes {methods}"
+        elif route.path.startswith("/api/v1/auth"):
+            assert methods <= {"GET", "POST"}, f"{route.path} exposes {methods}"
+        elif route.path.startswith("/api/v1/admin"):
+            assert methods <= {"GET", "POST", "PATCH", "DELETE"}, route.path
 
 
 def test_routes_are_versioned_unique_and_kebab_case(app: FastAPI) -> None:
     seen: set[tuple[str, str]] = set()
     for route in _api_routes(app):
+        assert route.methods is not None
         assert route.path in {"/health", "/ready"} or route.path.startswith("/api/v1/"), route.path
         for method in route.methods or set():
             assert (method, route.path) not in seen, f"duplicate route {method} {route.path}"
@@ -114,7 +132,9 @@ def test_routes_are_versioned_unique_and_kebab_case(app: FastAPI) -> None:
 def test_case_data_routes_are_case_scoped(app: FastAPI) -> None:
     for route in _api_routes(app):
         if route.path.startswith("/api/v1/") and route.path != "/api/v1/system":
-            assert route.path.startswith("/api/v1/cases"), route.path
+            assert route.path.startswith(("/api/v1/cases", "/api/v1/auth", "/api/v1/admin")), (
+                route.path
+            )
 
 
 def test_no_forbidden_terminology_in_api_or_schema(app: FastAPI) -> None:

@@ -52,7 +52,7 @@ def test_system_info_reports_measured_state_only(client: TestClient, database_ur
     assert body["database"]["schema_revision"] == body["database"]["expected_revision"]
     assert body["uptime_seconds"] >= 0
     keys = {c["key"]: c["status"] for c in body["capabilities"]}
-    assert keys["identity"] == "reserved"
+    assert keys["identity"] == "available"
     assert keys["examination"] == "reserved"
     assert keys["evidence_intake"] == "reserved"
     # The database URL (and anything in it) must never be exposed.

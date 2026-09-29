@@ -91,12 +91,14 @@ def test_cors_allows_configured_origin_only(client: TestClient) -> None:
     assert "access-control-allow-origin" not in denied.headers
 
 
-def test_cors_preflight_rejects_write_methods(client: TestClient) -> None:
+def test_cors_preflight_allows_configured_identity_writes(client: TestClient) -> None:
     response = client.options(
         "/api/v1/cases",
         headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert response.headers["access-control-allow-credentials"] == "true"
 
 
 def test_untrusted_host_rejected(client: TestClient) -> None:

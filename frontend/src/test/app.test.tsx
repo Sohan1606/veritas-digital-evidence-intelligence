@@ -56,7 +56,7 @@ describe("application boot and routing", () => {
   it("explains restricted access when the API requires authentication", async () => {
     mockApi({ "/api/v1/cases": 401 });
     renderAt(<AppRoutes />, "/app/cases");
-    expect(await screen.findByText(/restricted/i)).toBeInTheDocument();
+    expect(await screen.findByText(/sign-in required/i)).toBeInTheDocument();
   });
 
   it("shows an error state, not a blank page, when the API is unreachable", async () => {
@@ -69,8 +69,8 @@ describe("application boot and routing", () => {
     mockApi();
     renderAt(<AppRoutes />, "/");
     expect(await screen.findByRole("heading", { level: 1, name: /automate work,\s*not accountability/i })).toBeInTheDocument();
-    expect(screen.getByText(/automated examination is not part of V1/i)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Investigator identity & access control")).toBeInTheDocument());
+    expect(screen.getByText(/automated examination is not part of V2/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("User identity & access control")).toBeInTheDocument());
     expect(screen.getAllByText("Reserved").length).toBeGreaterThan(0);
   });
 });

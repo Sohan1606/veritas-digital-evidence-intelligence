@@ -2,19 +2,6 @@ import { ButtonLink, PageHeader, StateView } from "../../design-system";
 import { caseEyebrow, useCase } from "../cases/CaseLayout";
 import { ReservedCapability } from "./ReservedCapability";
 
-export function MyWorkPage() {
-  return (
-    <>
-      <PageHeader eyebrow="Workspace · My Work" title="My Work" description="Assignments, reviews and follow-ups for the signed-in investigator." />
-      <ReservedCapability capability="identity" subject="My Work">
-        <ButtonLink to="/app/cases" size="sm" trailingIcon="arrowRight">
-          Go to cases
-        </ButtonLink>
-      </ReservedCapability>
-    </>
-  );
-}
-
 export function TimelinePage() {
   const c = useCase();
   return (

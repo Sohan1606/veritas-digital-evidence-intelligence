@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.enums import (
     AnalysisRunState,
@@ -255,7 +255,71 @@ class SystemInfo(ApiModel):
     api_version: Literal["v1"]
     environment: str
     access_mode: str
-    principal: Literal["demonstration_viewer"] | None
+    principal: Literal["demonstration_viewer", "user"] | None
     uptime_seconds: float
     database: DatabaseInfo
     capabilities: list[CapabilityOut]
+
+
+# --- Identity and access ---------------------------------------------------------------
+
+
+class LoginIn(ApiModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class SessionOut(ApiModel):
+    authenticated: bool
+    user_id: str | None
+    display_name: str | None
+    organization_ids: list[str]
+    roles: list[str]
+    capabilities: list[str]
+    case_capabilities: dict[str, list[str]]
+    session_id: str | None
+    expires_at: datetime | None
+    demonstration: bool = False
+
+
+class RoleOut(ApiModel):
+    id: str
+    name: str
+    capabilities: list[str]
+    assignable_in_console: bool
+
+
+class UserOut(ApiModel):
+    id: str
+    username: str
+    display_name: str
+    status: Literal["active", "disabled"]
+    organization_id: str
+    roles: list[str]
+    case_assignments: list[dict[str, str | None]]
+
+
+class RoleAssignmentIn(ApiModel):
+    role_id: str = Field(pattern=r"^ROLE-\d{3,9}$")
+    case_id: str = Field(pattern=r"^CASE-\d{3,9}$")
+
+
+class UserStatusIn(ApiModel):
+    status: Literal["active", "disabled"]
+
+
+class SecurityAuditOut(ApiModel):
+    id: str
+    occurred_at: datetime
+    actor: str
+    action: str
+    entity_type: str
+    entity_id: str | None
+    details: dict[str, object]
+
+
+def _normalize_handle(value: str) -> str:
+    return value.strip().casefold()
+
+
+LoginIn.model_rebuild()

@@ -42,6 +42,11 @@ class AuthenticationUnavailableError(VeritasError):
     code = "authentication_unavailable"
 
 
+class AuthenticationFailedError(VeritasError):
+    status_code = 401
+    code = "invalid_credentials"
+
+
 class AccessDeniedError(VeritasError):
     status_code = 403
     code = "access_denied"

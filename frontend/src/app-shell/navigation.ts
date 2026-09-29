@@ -14,6 +14,7 @@ export interface NavItem {
   /** Capability key from /api/v1/system; when reserved the item is marked as such. */
   capability?: string;
   count?: (counts: CaseCounts) => number;
+  permission?: string;
 }
 
 export interface WorkspaceNavItem extends NavItem {
@@ -26,20 +27,19 @@ export interface CaseNavItem extends NavItem {
 }
 
 export const WORKSPACE_NAV: WorkspaceNavItem[] = [
-  { key: "my-work", label: "My Work", icon: "mywork", to: "/app/my-work", capability: "identity" },
   { key: "cases", label: "Cases", icon: "cases", to: "/app/cases" },
 ];
 
 export const CASE_NAV: CaseNavItem[] = [
-  { key: "evidence", label: "Evidence", icon: "evidence", segment: "evidence", count: (c) => c.evidence },
-  { key: "examination", label: "Examination", icon: "examination", segment: "examination", capability: "examination", count: (c) => c.analysis_runs },
-  { key: "findings", label: "Findings", icon: "finding", segment: "findings", count: (c) => c.findings },
-  { key: "claims", label: "Claims", icon: "claim", segment: "claims", count: (c) => c.claims },
+  { key: "evidence", label: "Evidence", icon: "evidence", segment: "evidence", permission: "evidence:read", count: (c) => c.evidence },
+  { key: "examination", label: "Examination", icon: "examination", segment: "examination", permission: "examination:read", capability: "examination", count: (c) => c.analysis_runs },
+  { key: "findings", label: "Findings", icon: "finding", segment: "findings", permission: "findings:read", count: (c) => c.findings },
+  { key: "claims", label: "Claims", icon: "claim", segment: "claims", permission: "claims:read", count: (c) => c.claims },
   { key: "timeline", label: "Timeline", icon: "timeline", segment: "timeline", capability: "timeline" },
-  { key: "graph", label: "Graph", icon: "graph", segment: "graph" },
-  { key: "review", label: "Review", icon: "review", segment: "review", capability: "review", count: (c) => c.findings_awaiting_review },
+  { key: "graph", label: "Graph", icon: "graph", segment: "graph", permission: "graph:read" },
+  { key: "review", label: "Review", icon: "review", segment: "review", permission: "review:read", capability: "review", count: (c) => c.findings_awaiting_review },
   { key: "reports", label: "Reports", icon: "report", segment: "reports", capability: "report" },
-  { key: "audit", label: "Audit", icon: "audit", segment: "audit" },
+  { key: "audit", label: "Audit", icon: "audit", segment: "audit", permission: "case_audit:read" },
 ];
 
 export function casePath(caseId: string, segment = ""): string {
@@ -48,6 +48,15 @@ export function casePath(caseId: string, segment = ""): string {
 
 const STORAGE_KEY = "veritas.activeCase";
 const CASE_ID = /^CASE-\d{3,9}$/;
+
+/** Drop the last active Case when an identity boundary is crossed. */
+export function clearActiveCase() {
+  try {
+    window.sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* storage unavailable: the next route remains the source */
+  }
+}
 
 function readStored(): string | null {
   try {

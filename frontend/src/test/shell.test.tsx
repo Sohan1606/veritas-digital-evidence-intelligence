@@ -6,7 +6,7 @@ import { AppRoutes } from "../App";
 import { installBrowserStubs } from "./setup";
 import { mockApi, renderAt } from "./fixtures";
 
-const NAV_LABELS = ["My Work", "Cases", "Evidence", "Examination", "Findings", "Claims", "Timeline", "Graph", "Review", "Reports", "Audit"];
+const NAV_LABELS = ["Cases", "Evidence", "Examination", "Findings", "Claims", "Timeline", "Graph", "Review", "Reports", "Audit"];
 
 async function expectNoAxeViolations(container: HTMLElement) {
   const results = await axe.run(container, {
@@ -81,6 +81,7 @@ describe("investigator shell", () => {
     mockApi();
     const { container } = renderAt(<AppRoutes />, path);
     await screen.findAllByText(text);
+    await screen.findByRole("button", { name: "Notifications, 2 unread" });
     await waitFor(() => expect(screen.queryByRole("status", { name: /loading/i })).not.toBeInTheDocument());
     await expectNoAxeViolations(container);
   });
