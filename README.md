@@ -5,9 +5,10 @@ finding to its basis and keep conclusions open to human review. Its principle:
 **automate work, not accountability.** Evidence is treated as untrusted data, never as
 instructions, and the system is not a source of forensic truth.
 
-> **Status: cumulative V2 foundation.** V2 adds provisioned identity, server-side sessions,
-> explicit capabilities and case-scoped backend authorization to the independently verified
-> V1 foundation. Demonstration records remain synthetic metadata only—not real evidence.
+> **Status: cumulative V2.1 foundation.** V2 adds provisioned identity, server-side sessions,
+> explicit capabilities and Case-scoped backend authorization to the independently verified V1
+> foundation. V2.1 adds private Evidence intake mechanics. Seeded demonstration records remain
+> synthetic metadata only—not real evidence; no forensic conclusion is produced.
 
 ## Scope
 
@@ -16,7 +17,7 @@ Observation, Finding, Claim, Assessment, Case Knowledge Graph, and append-only A
 the read-only case API and investigator shell; the synthetic demo dataset; the structured error
 contract; and the PostgreSQL/SQLAlchemy/Alembic architecture.
 
-**Implemented in V2:**
+**Implemented cumulatively through V2.1:**
 
 - Provisioned Users (no public signup), Organizations and memberships, a canonical six-role
   catalog, case-scoped role assignments, and immutable public identifiers (`USR-001`,
@@ -40,12 +41,19 @@ contract; and the PostgreSQL/SQLAlchemy/Alembic architecture.
 - A tested `development`/`test`-only anonymous read-only demo adapter remains for the V1
   synthetic dataset. Production rejects demo access; restricted mode requires provisioned
   authenticated Users.
+- V2.1 adds streamed, authenticated Case-scoped evidence intake with immutable `EvidenceObject`
+  records, private quarantine/preservation storage, server-computed SHA-256/SHA-512, bounded
+  basic signature validation, append-only custody events, and canonical `AuditEvent` integration.
+  The original `Evidence` and `EvidenceProfile` remain the only logical record/profile concepts.
+  Demonstration Cases cannot receive or expose V2.1 EvidenceObject/custody data; anonymous V1
+  demo access retains synthetic Evidence/Profile behavior without object-derived hashes. There is
+  no generic evidence-byte download endpoint.
 
-**Not implemented (later versions):** real evidence upload/storage/preservation, file parsing,
-hashing of uploaded evidence, OCR/NLP/CV, deepfake or media examination, automated analysis,
-agent orchestration, external AI APIs, review/decision recording, reports, Case Packages, a
-public verifier, public signup, OIDC provider configuration, and MFA. The backend capability
-list is the runtime source of what is available or reserved.
+**Not implemented:** forensic examination or authenticity conclusions, semantic file/container
+parsing, OCR/NLP/CV, deepfake or media analysis, automated analysis, agent orchestration, external
+AI APIs, review/decision recording, reports, Case Packages, WORM storage, signed evidence
+manifests, public verification/upload, public signup, OIDC provider configuration, or MFA. The
+backend capability list is the runtime source of what is available or reserved.
 
 ## Architecture
 
@@ -54,7 +62,8 @@ browser ─► same-origin proxy ─► React + TypeScript
                             └─► FastAPI ─► SQLAlchemy/Alembic ─► PostgreSQL
                                   ├─► opaque server-side session authentication
                                   ├─► capabilities + Organization/Case authorization
-                                  └─► existing canonical Audit event stream
+                                  ├─► existing canonical Audit event stream
+                                  └─► private backend-only EvidenceStorage
 ```
 
 The browser uses one origin only: Vite's proxy in development or nginx in Docker. Backend
@@ -74,30 +83,29 @@ case-wide grant is bounded by its Organization membership.
 
 | Role | Capabilities | Scope / console assignment |
 | --- | --- | --- |
-| `INVESTIGATOR` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `examination:read` | Assigned per Case |
-| `REVIEWER` | Investigator read capabilities plus `review:read` | Assigned per Case |
-| `CUSTODIAN` | `case:read`, `evidence:read`, `case_audit:read`, `custody:read` | Assigned per Case; custody workflow is not implemented |
+| `INVESTIGATOR` | `case:read`, `evidence:read`, `evidence:intake`, `custody:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `examination:read` | Assigned per Case; may intake but not finalize |
+| `REVIEWER` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `review:read`, `examination:read` | Assigned per Case; no intake or custody-write |
+| `CUSTODIAN` | `case:read`, `evidence:read`, `evidence:intake`, `case_audit:read`, `custody:read`, `custody:write` | Assigned per Case; may finalize supported intake |
 | `RESEARCHER` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `examination:read` | Assigned per Case |
-| `ADMINISTRATOR` | `identity:read`, `users:read`, `users:manage`, `roles:assign`, `security_audit:read` | Organization identity administration; out-of-band assignment |
-| `AUDITOR` | Read capabilities plus `case:read:any` and `security_audit:read` | Organization-scoped case-wide access; out-of-band assignment |
+| `ADMINISTRATOR` | `identity:read`, `users:read`, `users:manage`, `roles:assign`, `security_audit:read` | Organization identity administration; no implicit evidence access; out-of-band assignment |
+| `AUDITOR` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `security_audit:read`, `case:read:any`, `examination:read` | Organization-scoped Case-wide read; no custody access; out-of-band assignment |
 
 ## Repository structure
 
 ```
 backend/            FastAPI service
-  app/api/          system, cases, auth, identity administration
+  app/api/          system, cases, auth, identity administration, Evidence intake
   app/core/         settings, authentication adapter, session security, middleware, errors, logs
   app/db/           SQLAlchemy engine/session, types, migration status
   app/domain/       canonical entities, explicit role capabilities, relationship rules
-  app/services/     read projections, canonical Audit writes, identifier allocation
+  app/services/     projections, canonical Audit writes, intake, hashing, signatures, storage
   app/provision.py  interactive out-of-band account/privileged-role provisioning
   app/seed.py       synthetic demonstration dataset (development only)
-  migrations/       append-only Alembic migration chain
-  tests/            V1 regression, auth, authorization, audit and architecture tests
-frontend/           React/TypeScript application shell, sign-in state, role-aware navigation,
-                    identity management, security Audit and preserved V1 workspaces
-docker/             Dockerfiles and same-origin nginx proxy
-docs/               architecture and threat-model documentation
+  migrations/       append-only Alembic migration chain (head `0003`)
+  tests/            V1/V2 regressions, intake integrity, auth, authorization, audit and architecture
+frontend/           React/TypeScript shell, Evidence intake/integrity/custody, identity/admin and V1 workspaces
+docker/             Dockerfiles, same-origin nginx proxy and backend-only evidence volume
+docs/               architecture, threat model and V2.1 Evidence intake notes
 scripts/            setup, local dev and deterministic verification
 ```
 
@@ -141,10 +149,20 @@ Existing V1 case routes stay GET-only and retain their response contracts. V2 ad
   `DELETE /api/v1/admin/users/{user_id}/roles/{role_id}?case_id=CASE-…`,
   `PATCH /api/v1/admin/users/{user_id}/status`.
 - `GET /api/v1/admin/security-audit?limit=…`.
+- V2.1 Evidence intake and custody endpoints:
+  `POST /api/v1/cases/{case_id}/evidence/intake`,
+  `POST /api/v1/cases/{case_id}/evidence/{evidence_id}/objects`,
+  `PUT /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/content`,
+  `POST /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/finalize`,
+  `GET /api/v1/cases/{case_id}/evidence/{evidence_id}/intake`, and
+  `GET /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/custody`.
+  No evidence-byte download route is provided.
 
 Login/session JSON contains identity, role/capability and expiry metadata only. The opaque session
 credential is set as an HttpOnly cookie; it is not returned in JSON or stored raw. CSRF material
 is held in a SameSite cookie and checked against the server-side session hash for unsafe methods.
+Evidence bytes use streamed raw bodies with server-side hashes and opaque storage keys; exact
+schemas and capability requirements are documented in [docs/evidence-intake-v2.1.md](docs/evidence-intake-v2.1.md).
 Errors keep the existing `{ "error": { "code", "message", "request_id" } }` envelope. See
 `backend/app/schemas.py` for exact response contracts.
 
@@ -168,7 +186,10 @@ Settings are `VERITAS_*`, read from the process environment or repository-root `
 
 Useful settings: `VERITAS_SESSION_TTL_MINUTES` (5–1440, default 720),
 `VERITAS_LOGIN_FAILURE_LIMIT` (default 5), `VERITAS_LOGIN_LOCKOUT_MINUTES` (default 15),
-`VERITAS_ALLOWED_HOSTS`, `VERITAS_CORS_ORIGINS`, and `VERITAS_MAX_REQUEST_BYTES`.
+`VERITAS_ALLOWED_HOSTS`, `VERITAS_CORS_ORIGINS`, `VERITAS_MAX_REQUEST_BYTES`,
+`VERITAS_EVIDENCE_STORAGE_ROOT` (default `./data/evidence`) and
+`VERITAS_MAX_EVIDENCE_BYTES` (default 100 MiB; enforced against streamed bytes). Docker nginx
+also caps uploads at 100 MiB by default; review both ceilings when changing the application limit.
 
 ## Docker
 
@@ -179,7 +200,10 @@ docker compose up --build    # http://localhost:8080
 
 The local stack runs PostgreSQL, API and nginx; only port 8080 is published on 127.0.0.1. It
 runs with development demo access and seeds the synthetic dataset; it is not a production
-deployment. To add an identity in the running stack:
+deployment. Compose declares a separate `evidencedata` named volume mounted only into the backend
+at `/var/lib/veritas/evidence`; nginx does not mount or serve that directory. This configuration
+boundary is not a substitute for Docker-runtime or host-security verification. To add an identity
+in the running stack:
 
 ```bash
 docker compose exec backend python -m app.provision \
@@ -211,21 +235,26 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
 - Authorization is server-side. A role does not automatically grant access to every Case;
   organization membership, capabilities and Case scope are independently checked. `AUDITOR`
   case-wide access is limited to the Administrator-provisioned Auditor role and its organization.
-- The case-domain API remains read-only; only identity/admin endpoints mutate identity state.
-  No uploads, URL fetch, shell execution, external AI call, or evidence content processing.
+- Existing case-domain projections remain read-only except for the explicit V2.1 Evidence intake
+  endpoints. Intake streams untrusted bytes to private backend storage and performs only bounded,
+  deterministic leading-byte checks and hashing; there is no URL fetch, shell execution, external
+  AI call, semantic parsing or forensic examination.
 - Security activity is written through canonical `AuditEvent`, which carries an authoritative
   nullable `organization_id`; the security-audit endpoint filters to organizations where the
   caller holds `security_audit:read`. NULL-scoped global/unknown-login events are deliberately
-  not returned to any organization. PostgreSQL uses the existing append-only trigger; SQLite
-  test runs only prove ORM-level immutability.
+  not returned to any organization. AuditEvent and EvidenceCustodyEvent have ORM append-only
+  guards and PostgreSQL trigger migrations; SQLite test runs establish ORM behavior only. The
+  PostgreSQL-specific trigger tests were skipped when PostgreSQL was unavailable.
 - There is no configured OIDC provider or MFA adapter implementation yet. The authentication
   protocol and immutable issuer/subject linkage fields are intended as replacement points, not
   a claim of OIDC/MFA support.
 - New accounts and privileged Administrator/Auditor roles are provisioned only through the
   operator CLI. The console handles authorized status changes and ordinary case-role assignments;
   there is no self-service signup, password reset, or recovery workflow.
-- No review/decision write workflow, evidence content, forensic examination, reports, or Case
-  Packages are part of V2. Synthetic V1 evidence items remain metadata only.
+- No review/decision write workflow, forensic examination, reports, or Case Packages are part
+  of V2.1. Seeded synthetic V1 evidence remains metadata only; authorized V2.1 intake can place
+  separately captured bytes in private backend storage. Hashes and signature checks are not an
+  authenticity verdict, forensic certification, or legal-admissibility claim.
 - Rate limiting is database-backed per observed source IP; distributed-source attacks
   and shared-proxy lockout require additional edge controls. A database superuser can tamper
   with audit storage; external WORM/tamper-evidence export is not implemented.
@@ -239,17 +268,19 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
 ## Roadmap and explicit boundaries
 
 Potential later work requires separate design/review gates: OIDC and MFA provider integration;
-organization lifecycle and multi-organization administration; secure evidence intake, preservation
-and examination; review/decision write workflows; case reporting and export; independent external
-security review; and hardened distributed rate limiting and tamper-evident audit export. These
-are not present in V2. Public signup and public evidence verification remain out of scope.
+organization lifecycle and multi-organization administration; forensic examination; review/decision
+write workflows; case reporting and export; independent external security review; and hardened
+distributed rate limiting and tamper-evident audit export. These are not present in V2.1. Public
+signup and public evidence verification remain out of scope.
 
 ## Demonstration data policy
 
-All data is synthetic, created by `python -m app.seed` (development/test only; refused in
-production). Records are flagged `demonstration` and labelled
-**DEMONSTRATION DATA — NOT REAL EVIDENCE** in the API and UI. Evidence records have no media
-or evidence bytes in the repository or database.
+The seeded demonstration dataset is synthetic, created by `python -m app.seed`
+(development/test only; refused in production). Its records are flagged `demonstration` and
+labelled **DEMONSTRATION DATA — NOT REAL EVIDENCE** in the API and UI; those demo Evidence rows
+have no associated media bytes in the repository or database. Separately, an authenticated and
+Case-authorized V2.1 intake can store bytes outside the database in the backend-only private
+EvidenceStorage root. Do not place real evidence or credentials in synthetic tests or fixtures.
 
 ## License
 

@@ -18,7 +18,13 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import DomainRuleViolation
 from app.core.logging import request_id_var
-from app.domain.enums import EvidenceType, NodeType, ObservationOrigin, RelationshipType
+from app.domain.enums import (
+    EvidenceAuditAction,
+    EvidenceType,
+    NodeType,
+    ObservationOrigin,
+    RelationshipType,
+)
 from app.domain.models import (
     NODE_MODELS,
     AnalysisRun,
@@ -148,7 +154,7 @@ def register_evidence(
     record_audit_event(
         session,
         actor=actor,
-        action="evidence.registered",
+        action=EvidenceAuditAction.REGISTERED.value,
         entity_type="evidence",
         entity_public_id=evidence.public_id,
         case=case,

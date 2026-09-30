@@ -20,6 +20,9 @@ error_logger = logging.getLogger("veritas.errors")
 REQUEST_ID_HEADER = "x-request-id"
 # Client-supplied correlation IDs are accepted only if they are short and inert.
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
+_EVIDENCE_CONTENT_PATH = re.compile(
+    r"^/api/v1/cases/CASE-\d{3,9}/evidence/EVD-\d{3,9}/objects/EOBJ-\d{3,9}/content$"
+)
 
 _DOCS_PATHS = ("/api/docs", "/api/redoc", "/api/openapi.json")
 
@@ -145,7 +148,23 @@ class BodySizeLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        declared = dict(scope["headers"]).get(b"content-length")
+        headers = dict(scope["headers"])
+        content_type = (
+            headers.get(b"content-type", b"").decode("latin-1").split(";", 1)[0].strip().lower()
+        )
+        is_evidence_stream = (
+            scope.get("method") == "PUT"
+            and _EVIDENCE_CONTENT_PATH.fullmatch(scope.get("path", "")) is not None
+            and content_type == "application/octet-stream"
+        )
+        if is_evidence_stream:
+            # The intake service performs the configured, actual-byte count while it
+            # streams into private quarantine storage. Only this exact raw-content route
+            # bypasses the smaller JSON/request envelope limit.
+            await self.app(scope, receive, send)
+            return
+
+        declared = headers.get(b"content-length")
         if declared is not None:
             try:
                 too_large = int(declared) > self.max_bytes

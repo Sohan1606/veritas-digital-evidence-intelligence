@@ -80,9 +80,15 @@ def list_evidence(case: CaseDep, session: SessionDep) -> ListResponse[EvidenceOu
     dependencies=[Depends(require_case_capability("evidence:read"))],
 )
 def get_evidence_profile(
-    case: CaseDep, evidence_id: EvidenceId, session: SessionDep
+    case: CaseDep, evidence_id: EvidenceId, session: SessionDep, principal: PrincipalDep
 ) -> EvidenceProfileOut:
-    return queries.evidence_profile(session, case, evidence_id)
+    # Preserve anonymous V1 demo profiles while withholding V2.1 object-derived digests.
+    return queries.evidence_profile(
+        session,
+        case,
+        evidence_id,
+        include_evidence_object_integrity=(principal.authenticated and not case.is_demonstration),
+    )
 
 
 @router.get(

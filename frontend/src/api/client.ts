@@ -29,7 +29,7 @@ function classify(status: number): ApiFailureKind {
   if (status === 401) return "restricted";
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
-  if (status === 422 || status === 400) return "invalid";
+  if (status === 400 || status === 413 || status === 415 || status === 422) return "invalid";
   if (status === 502 || status === 503 || status === 504) return "unreachable";
   return "server";
 }
@@ -88,6 +88,40 @@ export async function apiMutation<T>(
         ...(csrf ? { "X-CSRF-Token": csrf } : {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch {
+    throw new ApiError("unreachable", "The VERITAS API could not be reached.", null, null, null);
+  }
+  const requestId = response.headers.get("x-request-id");
+  const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
+  const payload: ErrorEnvelope = isJson ? await response.json().catch(() => ({})) : {};
+  if (!response.ok) {
+    throw new ApiError(
+      classify(response.status),
+      payload.error?.message ?? `Request failed (${response.status}).`,
+      response.status,
+      payload.error?.code ?? null,
+      payload.error?.request_id ?? requestId,
+    );
+  }
+  return payload as T;
+}
+
+/** Raw, same-origin binary upload. Evidence bytes are never JSON-encoded or logged here. */
+export async function apiUpload<T>(path: string, content: Blob): Promise<T> {
+  if (!path.startsWith("/")) throw new Error("API paths must be relative to the current origin");
+  let response: Response;
+  try {
+    const csrf = readCookie("veritas_csrf");
+    response = await fetch(path, {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/octet-stream",
+        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+      },
+      body: content,
     });
   } catch {
     throw new ApiError("unreachable", "The VERITAS API could not be reached.", null, null, null);

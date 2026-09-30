@@ -5,18 +5,22 @@ Public identifiers (``CASE-001`` …) are the only identifiers exposed; internal
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.enums import (
     AnalysisRunState,
     AssessmentState,
     CaseState,
     ClaimState,
+    EvidenceCustodyEventType,
+    EvidenceObjectState,
     EvidenceState,
     EvidenceType,
+    EvidenceValidationStatus,
     FindingReviewStatus,
     NodeType,
     ObjectiveState,
@@ -87,6 +91,87 @@ class EvidenceOut(ApiModel):
     state: EvidenceState
     profile_recorded: bool
     created_at: datetime
+
+
+def _safe_filename(value: str) -> str:
+    if (
+        value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or re.match(r"^[A-Za-z]:", value)
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or len(value.encode("utf-8")) > 255
+    ):
+        raise ValueError("filename metadata must be a single safe filename")
+    return value
+
+
+class EvidenceIntakeIn(ApiModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    label: str = Field(min_length=1, max_length=200)
+    evidence_type: EvidenceType
+    description: str | None = Field(default=None, max_length=2000)
+    original_filename: str = Field(min_length=1, max_length=255)
+    declared_media_type: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$"
+    )
+
+    @field_validator("original_filename")
+    @classmethod
+    def _validate_original_filename(cls, value: str) -> str:
+        return _safe_filename(value)
+
+
+class EvidenceObjectIntakeIn(ApiModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    original_filename: str = Field(min_length=1, max_length=255)
+    declared_media_type: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$"
+    )
+
+    @field_validator("original_filename")
+    @classmethod
+    def _validate_original_filename(cls, value: str) -> str:
+        return _safe_filename(value)
+
+
+class EvidenceObjectOut(ApiModel):
+    id: str
+    evidence_id: str
+    original_filename: str
+    declared_media_type: str
+    detected_media_type: str | None
+    byte_size: int
+    sha256: str | None
+    sha512: str | None
+    state: EvidenceObjectState
+    validation_status: EvidenceValidationStatus
+    validation_note: str | None
+    acquired_at: datetime
+    acquired_by: str
+    upload_completed_at: datetime | None
+    preserved_at: datetime | None
+    preserved_by: str | None
+
+
+class EvidenceDetailOut(ApiModel):
+    evidence: EvidenceOut
+    objects: list[EvidenceObjectOut]
+
+
+class EvidenceCustodyEventOut(ApiModel):
+    id: str
+    evidence_id: str
+    evidence_object_id: str
+    event_type: EvidenceCustodyEventType
+    from_state: str | None
+    to_state: str
+    actor: str
+    occurred_at: datetime
+    reason: str | None
+    request_id: str
 
 
 class ProfileSectionOut(ApiModel):

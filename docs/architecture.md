@@ -1,6 +1,6 @@
-# VERITAS architecture (V1 foundation + V2 identity/access)
+# VERITAS architecture (cumulative V1 + V2.1)
 
-This document records the cumulative V1/V2 architecture. V2 extends the independently verified V1 foundation rather than replacing it. Each concept has exactly one owner, named below.
+This document records the cumulative V1/V2/V2.1 architecture. V2 extends the independently verified V1 foundation, and V2.1 adds Evidence intake without replacing the V2 identity/access foundation. Each concept has exactly one owner, named below.
 
 ## 1. System shape
 
@@ -13,9 +13,10 @@ browser ──► same origin ──► /            static frontend (Vite build
   the API; in Docker, nginx does. Frontend code uses relative URLs only (enforced by lint
   and a repository test), so there is no API host to configure in the client and no CORS
   in the default setup.
-* Existing V1 case-domain routes remain **read-only** (`GET` only). V2 adds a small set of real
-  authentication and identity-administration writes; no uploads, URL fetching, shell execution,
-  or external AI calls are introduced.
+* Existing V1 case-domain read projections remain read-only. V2 adds authentication and identity
+  administration writes. V2.1 adds only explicit Case-scoped Evidence intake writes: the API
+  streams raw bytes to a private backend storage abstraction and does not provide URL fetching,
+  shell execution, semantic file parsing, forensic examination or external AI calls.
 
 ## 2. Canonical domain
 
@@ -26,8 +27,10 @@ mirrors the API contract in `frontend/src/api/types.ts`.
 | --- | --- | --- | --- |
 | Case | `CASE-001` | open · on_hold · closed | `demonstration` flag gates anonymous demo access |
 | Objective | `OBJ-001` | active · met · withdrawn | ordered per case |
-| Evidence | `EVD-001` | registered · withdrawn | V1 holds metadata records only — no content |
-| Evidence Profile | (of its evidence) | per-section status | one per evidence item, six sections |
+| Evidence | `EVD-001` | registered · withdrawn | canonical logical Case evidence record |
+| EvidenceObject | `EOBJ-001` | QUARANTINED · PRESERVED · REJECTED | one immutable captured byte object; stored outside PostgreSQL |
+| EvidenceCustodyEvent | `CST-001` | RECEIVED · PRESERVED | append-only custody projection; only these event types in V2.1 |
+| Evidence Profile | (of its evidence) | per-section status | one per evidence item, six sections; computed integrity values project from EvidenceObject |
 | Analysis Run | `ANL-001` | queued · running · completed · failed · cancelled | none are produced in V1 |
 | Observation | `OBS-001` | recorded · superseded | origin `analysis_run` or `manual` |
 | Finding | `FND-001` | review: unreviewed · under_review · accepted · challenged · rejected | method, limitations, alternative explanations |
@@ -49,8 +52,10 @@ are owned by `domain/values.py` and served to the UI with every profile:
 * **Unknown** — sought but could not be established from what is available.
 * **Not available** — no procedure exists in this version, or the section does not apply.
 
-Each attribute carries a basis: `computed` or `declared`. V1 computes nothing, so no V1
-section can be *Verified*. Sections are never combined into an overall score.
+Each attribute carries a basis: `computed` or `declared`. V2.1 can project computed intake
+values (for example size and digests) from the associated EvidenceObject; declared values remain
+explicitly identified. No section is an authenticity verdict, and sections are never combined
+into an overall score.
 
 ## 3. Case Knowledge Graph
 
@@ -93,9 +98,12 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
   requires a matching Case-scoped capability before any existing read projection runs. Global
   Auditor case access is explicit in its capability and out-of-band assignment. Administrator
   identity privileges do not imply Case access. Case/child authorization failures are masked as
-  the same 404 as missing resources. The browser only reflects these backend permissions. Security-audit queries additionally filter
-  `AuditEvent.organization_id` to the organizations where the principal holds the explicit
-  `security_audit:read` capability; NULL-scoped platform events are not visible to organization roles.
+  the same 404 as missing resources. Evidence intake, detail and custody routes each apply their
+  own explicit Case capability in addition to Case authorization; Administrator identity privileges
+  do not imply evidence access. The browser only reflects these backend permissions. Security-audit
+  queries additionally filter `AuditEvent.organization_id` to the organizations where the principal
+  holds the explicit `security_audit:read` capability; NULL-scoped platform events are not visible
+  to organization roles.
 * **Access modes.** `restricted` requires provisioned authentication for operational Case data.
   `demo` is a separate, anonymous, read-only V1 demonstration adapter: only flagged synthetic
   Cases are accessible, only in `development` and `test`; production refuses `demo`. A supplied
@@ -111,11 +119,14 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
   access log, catch-all error envelope) → trusted hosts → CORS (explicit origins; credentials and the methods required by the session/admin API) → request body limit.
 * **Errors** use one envelope `{"error": {"code", "message", "request_id"}}`; stack traces
   and internals are neither returned to clients nor emitted in structured VERITAS JSON logs.
-* **Audit** security events extend the canonical `AuditEvent` model (no second system), carry a
-  nullable authoritative `organization_id`, are append-only (PostgreSQL trigger rejects
-  UPDATE/DELETE) and store identifiers/metadata only. Case events inherit the Case organization;
-  identity events are scoped to a single unambiguous membership or an explicit target organization.
-  Unknown/global events remain NULL-scoped and are excluded from organization-audit queries.
+* **Audit** security and intake events extend the canonical `AuditEvent` model (no second
+  general audit system), carry a nullable authoritative `organization_id`, are append-only
+  (PostgreSQL trigger rejects UPDATE/DELETE) and store identifiers/metadata only. Case events
+  inherit the Case organization; identity events are scoped to a single unambiguous membership
+  or an explicit target organization. Unknown/global events remain NULL-scoped and are excluded
+  from organization-audit queries. `EvidenceCustodyEvent` is a separate append-only domain
+  projection limited to `RECEIVED` and `PRESERVED` event types; ORM guards and a PostgreSQL
+  trigger protect it.
 * **Logs** are JSON lines with request ID, route template, method, status and duration.
   They never contain request bodies, query values, evidence content or secrets.
 
@@ -134,9 +145,9 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
 * **Shell** (`app-shell/`): one navigation definition (`navigation.ts`) feeds the sidebar,
   breadcrumbs and command palette, so a section cannot exist under two names. Workspace sections: Cases plus capability-gated Identity management and Security audit; case
   sections: Evidence, Examination, Findings, Claims, Timeline, Graph, Review, Reports, Audit. Reserved sections are labelled as such.
-* **Data**: `api/client.ts` (typed GET and CSRF-aware mutation calls) and `api/useResource.ts`
-  (shared in-memory GET cache with de-duplicated requests and explicit reload). Auth state lives
-  in context; credential cookies are not placed in local storage. GET entries are scoped to the
+* **Data**: `api/client.ts` (typed GET, CSRF-aware JSON mutations, and raw same-origin evidence
+  streaming) and `api/useResource.ts` (shared in-memory GET cache with de-duplicated requests and
+  explicit reload). Auth state lives in context; credential cookies are not placed in local storage. GET entries are scoped to the
   authenticated session identity and cleared before identity changes and at logout; in-flight
   requests from the prior scope remain detached and cannot repopulate the new scope. Logout also
   removes `veritas.activeCase` from session storage. These client controls prevent accidental
@@ -159,17 +170,18 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
 ## 7. Decisions
 
 1. **Monorepo, two deployables** (`backend/`, `frontend/`) with shared scripts, Docker and CI.
-2. **Cumulative API boundary:** V1 case-domain routes remain GET-only; V2 adds only real
-   authentication and minimum identity-administration endpoints. Reserved domain capabilities
-   are declared in `/api/v1/system`, not stubbed.
+2. **Cumulative API boundary:** existing V1 projections remain read-only; V2 adds authentication
+   and identity-administration endpoints, and V2.1 adds explicit Case-authorized Evidence intake,
+   metadata and custody routes. No generic byte-download or reserved-workflow stub is added.
 3. **Relational core + projected graph** instead of a graph database: one source of truth,
    referential integrity, and graph semantics kept in code.
 4. **Public IDs separate from primary keys**: stable, human-readable references without
    exposing internal keys or row counts across entity types.
 5. **Declared vs computed attributes** instead of any aggregate score or verdict.
 6. **Same-origin proxying** so the browser never addresses the API host.
-7. **Synthetic demonstration data only**, loaded by an idempotent seed that refuses to run in
-   production and marks every record `DEMONSTRATION DATA — NOT REAL EVIDENCE`.
+7. **Demonstration-data separation:** the idempotent seed loads synthetic metadata only and
+   refuses to run in production. Separately authorized V2.1 Evidence intake stores captured bytes
+   only in private backend storage, never in the seed or PostgreSQL.
 
 ## 8. V2 identity/access integration points
 
@@ -187,7 +199,43 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
 ## 9. Extension points for later versions
 
 * Additional organizations and membership lifecycle can be added without changing Case scope.
-* Evidence intake, preservation and hashing populate `computed` profile attributes, which is
-  what allows a section to become *Verified*.
+* Evidence intake, preservation and hashing are implemented in V2.1. The storage interface
+  isolates the local filesystem backend so a future object-storage adapter can be evaluated
+  without adding another Evidence domain concept. Such an adapter, WORM guarantees and signed
+  manifests are not part of this implementation.
 * Examination methods produce Analysis Runs whose Observations use origin `analysis_run`.
 * New asserted relationship types are added to `ASSERTED_RELATIONSHIPS` plus a migration.
+
+## 10. V2.1 Evidence intake and storage
+
+* `Evidence` remains the logical record and `EvidenceProfile` remains the only profile projection.
+  `EvidenceObject` represents one captured byte sequence; another acquisition creates a new object.
+* Intake is split into metadata registration, raw-byte upload and explicit finalization. Upload
+  streams through bounded chunks, counts actual received bytes against `VERITAS_MAX_EVIDENCE_BYTES`,
+  and computes SHA-256/SHA-512 while writing to quarantine. Finalization performs only a bounded,
+  deterministic leading-byte signature/type compatibility check and either rejects or preserves.
+* The only EvidenceObject terminal paths are `QUARANTINED → PRESERVED` and
+  `QUARANTINED → REJECTED`. Preserved metadata and bytes are not editable. The separate
+  append-only custody projection records only `RECEIVED` and `PRESERVED` in V2.1.
+* `EvidenceStorage` hides storage mechanics behind an application protocol. `LocalEvidenceStorage`
+  uses opaque server-generated keys, exclusive file creation and a same-filesystem atomic
+  publication into a backend-private preserved directory. The configured evidence root is
+  outside PostgreSQL. Compose declares a separate named volume mounted only by the backend;
+  nginx has no evidence-volume mount and exposes no static storage route.
+* Case authorization is applied before item lookup. Intake/upload require `evidence:intake`,
+  object detail requires authenticated `evidence:read`, finalization requires `evidence:intake`
+  and `custody:write`, and custody reads require authenticated `custody:read`. No V2.1 object
+  creation or metadata/custody access is permitted for a demonstration Case, even to an
+  authenticated role. Anonymous demo access retains V1 Evidence/Profile behavior but cannot read
+  V2.1 object metadata/custody or see object-derived digests through the profile projection.
+  Administrator identity privileges are not evidence capabilities. There is no general
+  evidence-byte download endpoint.
+* Migration `0003_evidence_intake_integrity` adds the intake/custody schema and PostgreSQL
+  append-only protection. SQLite upgrade/downgrade/re-upgrade and ORM immutability are tested;
+  the PostgreSQL trigger is not verified when PostgreSQL is unavailable. Docker runtime and
+  volume persistence also require a Docker-enabled environment and are not established by static
+  Compose inspection.
+* Hashes confirm only the byte sequence VERITAS received and processed. Basic signatures are not
+  content parsing or malware analysis; private local storage is not WORM, independently verified
+  tamper-proof storage, or a forensic certification. See [the V2.1 implementation notes](evidence-intake-v2.1.md)
+  for endpoint contracts and verification boundaries.

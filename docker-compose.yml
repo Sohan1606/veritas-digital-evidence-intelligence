@@ -3,7 +3,7 @@
 #   docker compose up --build   ->  http://localhost:8080
 # This stack runs in development mode with demonstration access and loads the
 # synthetic demonstration dataset. It is not a production deployment.
-name: veritas
+name: veritas-v2
 
 services:
   db:
@@ -27,9 +27,14 @@ services:
     environment:
       VERITAS_ENVIRONMENT: development
       VERITAS_ACCESS_MODE: demo
-      VERITAS_DATABASE_URL: postgresql+psycopg://veritas:${POSTGRES_PASSWORD}@db:5432/veritas
+      VERITAS_DATABASE_URL: postgresql+psycopg://veritas@db:5432/veritas
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       VERITAS_ALLOWED_HOSTS: backend,localhost,127.0.0.1
       VERITAS_LOG_LEVEL: INFO
+      VERITAS_EVIDENCE_STORAGE_ROOT: /var/lib/veritas/evidence
+      VERITAS_MAX_EVIDENCE_BYTES: ${VERITAS_MAX_EVIDENCE_BYTES:-104857600}
+    volumes:
+      - evidencedata:/var/lib/veritas/evidence
     command: ["sh", "-c", "alembic upgrade head && python -m app.seed && exec uvicorn app.main:get_app --factory --host 0.0.0.0 --port 8000 --no-server-header"]
     depends_on:
       db:
@@ -47,3 +52,4 @@ services:
 
 volumes:
   pgdata:
+  evidencedata:

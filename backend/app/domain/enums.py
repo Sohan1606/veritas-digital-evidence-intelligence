@@ -33,9 +33,34 @@ class EvidenceType(StrEnum):
 
 
 class EvidenceState(StrEnum):
-    # A metadata record exists; evidence content has not been ingested (V1 has no intake).
+    # Logical evidence lifecycle; stored-object lifecycle is defined separately below.
     REGISTERED = "registered"
     WITHDRAWN = "withdrawn"
+
+
+class EvidenceObjectState(StrEnum):
+    QUARANTINED = "QUARANTINED"
+    PRESERVED = "PRESERVED"
+    REJECTED = "REJECTED"
+
+
+class EvidenceValidationStatus(StrEnum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class EvidenceCustodyEventType(StrEnum):
+    RECEIVED = "RECEIVED"
+    PRESERVED = "PRESERVED"
+
+
+class EvidenceAuditAction(StrEnum):
+    REGISTERED = "evidence.registered"
+    OBJECT_RECEIVED = "evidence.object.received"
+    UPLOAD_COMPLETED = "evidence.upload.completed"
+    PRESERVED = "evidence.preserved"
+    REJECTED = "evidence.rejected"
 
 
 class ProfileStatus(StrEnum):

@@ -36,7 +36,8 @@ CAPABILITIES: tuple[CapabilityOut, ...] = (
         key="evidence_profile",
         label="Evidence Profile",
         status="available",
-        note="Read-only. Profiles hold declared attributes; no values are computed in V1.",
+        note="Read-only Evidence Profiles; preserved-object integrity values are projected from "
+        "server-computed byte size, SHA-256, SHA-512 and basic signature validation.",
     ),
     CapabilityOut(
         key="case_knowledge_graph",
@@ -59,9 +60,11 @@ CAPABILITIES: tuple[CapabilityOut, ...] = (
     ),
     CapabilityOut(
         key="evidence_intake",
-        label="Evidence intake & preservation",
-        status="reserved",
-        note="No evidence content can be submitted, stored or hashed in V1.",
+        label="Evidence intake, integrity & custody foundation",
+        status="available",
+        note="Bounded streaming upload, private quarantine/preservation, SHA-256/SHA-512, "
+        "basic leading-byte validation and RECEIVED/PRESERVED custody records. This does not "
+        "establish authenticity or perform forensic examination.",
     ),
     CapabilityOut(
         key="examination",

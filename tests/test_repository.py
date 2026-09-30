@@ -106,7 +106,8 @@ def test_env_example_holds_placeholders_only() -> None:
     )
     assert values["VERITAS_DEBUG"] == "false"
     assert values["POSTGRES_PASSWORD"] == "CHANGE_ME"
-    assert ":CHANGE_ME@" in values["VERITAS_DATABASE_URL"]
+    assert values["VERITAS_DATABASE_URL"].startswith("postgresql+psycopg://veritas@")
+    assert ":CHANGE_ME@" not in values["VERITAS_DATABASE_URL"]
     assert values["VERITAS_CORS_ORIGINS"] == ""
     assert "*" not in values["VERITAS_ALLOWED_HOSTS"]
 
@@ -166,8 +167,8 @@ def test_frontend_source_never_addresses_backend_host_directly() -> None:
 
 def test_demonstration_data_is_labelled() -> None:
     notice = "DEMONSTRATION DATA — NOT REAL EVIDENCE"
-    assert notice in (ROOT / "backend" / "app" / "schemas.py").read_text()
-    assert notice in (ROOT / "backend" / "app" / "seed.py").read_text()
+    assert notice in (ROOT / "backend" / "app" / "schemas.py").read_text(encoding="utf-8")
+    assert notice in (ROOT / "backend" / "app" / "seed.py").read_text(encoding="utf-8")
 
 
 def test_required_project_files_exist() -> None:

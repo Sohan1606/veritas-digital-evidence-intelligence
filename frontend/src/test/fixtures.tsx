@@ -13,6 +13,9 @@ import type {
   CaseGraph,
   Claim,
   Evidence,
+  EvidenceCustodyEvent,
+  EvidenceDetail,
+  EvidenceObject,
   EvidenceProfile,
   Finding,
   ListResponse,
@@ -49,6 +52,57 @@ export const caseDetail: CaseDetail = {
 export const evidence: Evidence[] = [
   { id: "EVD-001", label: "fixture-photo.jpg", evidence_type: "image", description: "Fixture image.", state: "registered", profile_recorded: true, created_at: T },
   { id: "EVD-002", label: "fixture-log.txt", evidence_type: "document", description: null, state: "registered", profile_recorded: false, created_at: T },
+];
+
+export const evidenceObject: EvidenceObject = {
+  id: "EOBJ-001",
+  evidence_id: "EVD-001",
+  original_filename: "synthetic-photo.jpg",
+  declared_media_type: "image/jpeg",
+  detected_media_type: "image/jpeg",
+  byte_size: 128,
+  sha256: "a".repeat(64),
+  sha512: "b".repeat(128),
+  state: "PRESERVED",
+  validation_status: "accepted",
+  validation_note: "A supported leading-byte signature matched the declared media type.",
+  acquired_at: T,
+  acquired_by: "USR-001",
+  upload_completed_at: T,
+  preserved_at: T,
+  preserved_by: "USR-002",
+};
+
+export const evidenceDetail: EvidenceDetail = {
+  evidence: evidence[0]!,
+  objects: [evidenceObject],
+};
+
+export const custodyEvents: EvidenceCustodyEvent[] = [
+  {
+    id: "CST-001",
+    evidence_id: "EVD-001",
+    evidence_object_id: "EOBJ-001",
+    event_type: "RECEIVED",
+    from_state: null,
+    to_state: "QUARANTINED",
+    actor: "USR-001",
+    occurred_at: T,
+    reason: "Evidence object registered in private quarantine.",
+    request_id: "req-synthetic",
+  },
+  {
+    id: "CST-002",
+    evidence_id: "EVD-001",
+    evidence_object_id: "EOBJ-001",
+    event_type: "PRESERVED",
+    from_state: "QUARANTINED",
+    to_state: "PRESERVED",
+    actor: "USR-002",
+    occurred_at: T,
+    reason: "Basic signature check passed.",
+    request_id: "req-synthetic",
+  },
 ];
 
 const section = (status: EvidenceProfile["identity"]["status"], label: string, value: string | null) => ({
@@ -171,6 +225,9 @@ export const ROUTES: Record<string, unknown> = {
   "/api/v1/cases": list([caseDetail]),
   "/api/v1/cases/CASE-001": caseDetail,
   "/api/v1/cases/CASE-001/evidence": list(evidence),
+  "/api/v1/cases/CASE-001/evidence/EVD-001/intake": evidenceDetail,
+  "/api/v1/cases/CASE-001/evidence/EVD-002/intake": { evidence: evidence[1], objects: [] },
+  "/api/v1/cases/CASE-001/evidence/EVD-001/objects/EOBJ-001/custody": list(custodyEvents),
   "/api/v1/cases/CASE-001/evidence/EVD-001/profile": profile,
   "/api/v1/cases/CASE-001/analysis-runs": list([]),
   "/api/v1/cases/CASE-001/findings": list([finding]),

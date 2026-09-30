@@ -131,7 +131,11 @@ def test_login_uses_opaque_http_only_session_cookie_and_audits_success(client: T
         assert db_session.token_hash != token
         assert len(db_session.token_hash) == 64
         event = (
-            session.execute(select(AuditEvent).where(AuditEvent.action == "authentication.success"))
+            session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "authentication.success", AuditEvent.actor == user_id
+                )
+            )
             .scalars()
             .first()
         )
@@ -251,6 +255,7 @@ def test_security_audit_is_organization_scoped_and_excludes_global_unknown_login
         )
         session.add(org_two)
         session.flush()
+        org_two_id = org_two.id
         record_security_event(
             session,
             actor="system:test",
@@ -317,9 +322,6 @@ def test_security_audit_is_organization_scoped_and_excludes_global_unknown_login
                 AuditEvent.action == "authentication.failure",
                 AuditEvent.entity_public_id == org_two_user_public_id,
             )
-        ).scalar_one()
-        org_two_id = session.execute(
-            select(Organization.id).where(Organization.public_id == "ORG-002")
         ).scalar_one()
         assert org_two_failure.organization_id == org_two_id
         org_two_event_public_id = org_two_failure.public_id
