@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.core.errors import EvidenceConflictError
@@ -192,9 +192,12 @@ def finalize_path(evidence_id: str, item_id: str) -> str:
 
 def storage_key(client: TestClient, item_id: str) -> str:
     with application(client).state.session_factory() as session:
-        return session.execute(
-            select(EvidenceObject.storage_key).where(EvidenceObject.public_id == item_id)
-        ).scalar_one()
+        return cast(
+            str,
+            session.execute(
+                select(EvidenceObject.storage_key).where(EvidenceObject.public_id == item_id)
+            ).scalar_one(),
+        )
 
 
 def storage_root(client: TestClient) -> Path:
@@ -646,12 +649,13 @@ def test_storage_failure_and_invalid_metadata_are_sanitized(
     detail = register(evidence_client, csrf)
     evidence_id = cast(str, cast(dict[str, object], detail["evidence"])["id"])
     item_id = object_id(detail)
-    original = evidence_client.app.state.evidence_storage
-    evidence_client.app.state.evidence_storage = FailingStorage(storage_root(evidence_client))
+    app = application(evidence_client)
+    original = app.state.evidence_storage
+    app.state.evidence_storage = FailingStorage(storage_root(evidence_client))
     try:
         failed = upload(evidence_client, csrf, evidence_id, item_id, b"%PDF-1.7\nsecret").json()
     finally:
-        evidence_client.app.state.evidence_storage = original
+        app.state.evidence_storage = original
     assert failed["error"]["code"] == "evidence_storage_unavailable"
     assert "/secret/path" not in str(failed) and "secret" not in str(failed)
     key = storage_key(evidence_client, item_id)
@@ -886,7 +890,7 @@ def test_invalid_digest_length_is_rejected_by_database_constraint(
     with application(evidence_client).state.session_factory() as session:
         with pytest.raises(IntegrityError):
             session.execute(
-                EvidenceObject.__table__.update()
+                update(EvidenceObject)
                 .where(EvidenceObject.public_id == item_id)
                 .values(sha256="too-short")
             )

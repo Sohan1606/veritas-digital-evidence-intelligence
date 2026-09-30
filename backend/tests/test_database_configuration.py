@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.db.session import build_engine
@@ -21,7 +22,7 @@ def test_compose_connection_keeps_reserved_password_out_of_database_url(
     monkeypatch.setenv("PGPASSWORD", password)
 
     database_url = "postgresql+psycopg://veritas@db:5432/veritas"
-    engine = build_engine(Settings(environment="test", database_url=database_url))
+    engine = build_engine(Settings(environment="test", database_url=SecretStr(database_url)))
     try:
         # Check the SQLAlchemy URL the psycopg dialect will use. Reserved password
         # characters stay solely in libpq's environment input, not the host portion.

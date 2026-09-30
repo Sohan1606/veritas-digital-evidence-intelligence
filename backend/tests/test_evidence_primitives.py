@@ -188,17 +188,16 @@ def test_storage_rejects_symlinked_configured_root(tmp_path: Path) -> None:
 def test_windows_directory_fsync_reports_unsupported(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from app.services import evidence_storage
 
     with monkeypatch.context() as platform:
-        platform.setattr(evidence_storage.os, "name", "nt")
+        platform.setattr(os, "name", "nt")
         platform.setattr(
-            evidence_storage.os,
+            os,
             "open",
             lambda *_args, **_kwargs: pytest.fail("Windows directory open must be skipped"),
         )
         platform.setattr(
-            evidence_storage.os,
+            os,
             "fsync",
             lambda *_args, **_kwargs: pytest.fail("Windows directory fsync must be skipped"),
         )
@@ -265,7 +264,6 @@ def test_finalize_surfaces_directory_sync_error_without_removing_source(
 def test_finalize_surfaces_link_failure_and_keeps_quarantine_source(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from app.services import evidence_storage
 
     store = LocalEvidenceStorage(tmp_path / "private")
     key = "e" * 32
@@ -276,7 +274,7 @@ def test_finalize_surfaces_link_failure_and_keeps_quarantine_source(
     def fail_link(*args: object, **kwargs: object) -> None:
         raise OSError("synthetic link failure")
 
-    monkeypatch.setattr(evidence_storage.os, "link", fail_link)
+    monkeypatch.setattr(os, "link", fail_link)
     with pytest.raises(EvidenceStorageFailure):
         store.finalize_preserved_object(key)
 
