@@ -57,6 +57,31 @@ class DomainRuleViolation(VeritasError):
     code = "domain_rule_violation"
 
 
+class EvidenceConflictError(VeritasError):
+    status_code = 409
+    code = "evidence_state_conflict"
+
+
+class EvidenceUploadTooLargeError(VeritasError):
+    status_code = 413
+    code = "evidence_too_large"
+
+
+class EvidenceUploadRequestError(VeritasError):
+    status_code = 400
+    code = "invalid_evidence_upload"
+
+
+class EvidenceUnsupportedUploadError(VeritasError):
+    status_code = 415
+    code = "unsupported_evidence_upload_media_type"
+
+
+class EvidenceStorageUnavailableError(VeritasError):
+    status_code = 503
+    code = "evidence_storage_unavailable"
+
+
 def error_body(
     code: str, message: str, details: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:

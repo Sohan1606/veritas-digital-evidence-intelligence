@@ -18,7 +18,7 @@ import {
 /** Presentation copy: what each Evidence Profile section is about. */
 const SECTION_COPY: Record<ProfileSectionKey, { title: string; scope: string }> = {
   identity: { title: "Identity", scope: "What the item is: name, media type, size." },
-  integrity: { title: "Integrity", scope: "Whether content is unchanged since acquisition." },
+  integrity: { title: "Integrity", scope: "Recorded byte size, digests and basic signature checks for preserved objects." },
   provenance: { title: "Provenance", scope: "Where the item came from and who supplied it." },
   quality: { title: "Quality", scope: "Whether content is fit for examination." },
   acquisition_context: { title: "Acquisition context", scope: "How and when the item was acquired." },

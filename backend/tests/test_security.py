@@ -24,6 +24,8 @@ CASE_ROUTES = [
     "/api/v1/cases/CASE-001",
     "/api/v1/cases/CASE-001/evidence",
     "/api/v1/cases/CASE-001/evidence/EVD-001/profile",
+    "/api/v1/cases/CASE-001/evidence/EVD-001/intake",
+    "/api/v1/cases/CASE-001/evidence/EVD-001/objects/EOBJ-001/custody",
     "/api/v1/cases/CASE-001/analysis-runs",
     "/api/v1/cases/CASE-001/findings",
     "/api/v1/cases/CASE-001/findings/FND-001",
@@ -91,13 +93,17 @@ def test_cors_allows_configured_origin_only(client: TestClient) -> None:
     assert "access-control-allow-origin" not in denied.headers
 
 
-def test_cors_preflight_allows_configured_identity_writes(client: TestClient) -> None:
+@pytest.mark.parametrize("method", ["POST", "PUT"])
+def test_cors_preflight_allows_configured_writes(client: TestClient, method: str) -> None:
     response = client.options(
         "/api/v1/cases",
-        headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"},
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": method,
+        },
     )
     assert response.status_code == 200
-    assert "POST" in response.headers["access-control-allow-methods"]
+    assert method in response.headers["access-control-allow-methods"]
     assert response.headers["access-control-allow-credentials"] == "true"
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
@@ -16,6 +17,8 @@ CANONICAL_PREFIXES = {
     "Case": "CASE",
     "Objective": "OBJ",
     "Evidence": "EVD",
+    "EvidenceObject": "EOBJ",
+    "EvidenceCustodyEvent": "CST",
     "AnalysisRun": "ANL",
     "Observation": "OBS",
     "Finding": "FND",
@@ -34,6 +37,8 @@ CANONICAL_PREFIXES = {
 CASE_SCOPED_TABLES = {
     "objectives",
     "evidence",
+    "evidence_objects",
+    "evidence_custody_events",
     "analysis_runs",
     "observations",
     "findings",
@@ -105,16 +110,37 @@ def _api_routes(app: FastAPI) -> list[APIRoute]:
     return [r for r in app.routes if isinstance(r, APIRoute)]
 
 
-def test_case_data_api_remains_read_only(app: FastAPI) -> None:
+def test_case_data_api_has_only_the_explicit_intake_writes(app: FastAPI) -> None:
+    intake_methods = {
+        "/api/v1/cases/{case_id}/evidence/intake": {"POST"},
+        "/api/v1/cases/{case_id}/evidence/{evidence_id}/objects": {"POST"},
+        "/api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/content": {"PUT"},
+        "/api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/finalize": {"POST"},
+    }
     for route in _api_routes(app):
         methods = route.methods
         assert methods is not None
         if route.path.startswith("/api/v1/cases"):
-            assert methods == {"GET"}, f"{route.path} exposes {methods}"
+            if route.path in intake_methods:
+                assert methods == intake_methods[route.path], f"{route.path} exposes {methods}"
+            else:
+                assert methods == {"GET"}, f"{route.path} exposes {methods}"
         elif route.path.startswith("/api/v1/auth"):
             assert methods <= {"GET", "POST"}, f"{route.path} exposes {methods}"
         elif route.path.startswith("/api/v1/admin"):
             assert methods <= {"GET", "POST", "PATCH", "DELETE"}, route.path
+
+
+def test_v21_spec_matches_api_route_and_has_a_complete_ending(app: FastAPI) -> None:
+    spec_path = Path(__file__).resolve().parents[2] / "docs" / "v2.1-evidence-intake-spec.md"
+    specification = spec_path.read_text(encoding="utf-8")
+    canonical_route = "/api/v1/cases/{case_id}/evidence/intake"
+    route_paths = set(app.openapi()["paths"])
+    assert canonical_route in route_paths
+    assert canonical_route in specification
+    assert "/api/v1/cases/{case_id}/evidence-intake" not in specification
+    assert "### Demonstration-mode data boundary" in specification
+    assert specification.rstrip().endswith("post-V2.1 scope.")
 
 
 def test_routes_are_versioned_unique_and_kebab_case(app: FastAPI) -> None:

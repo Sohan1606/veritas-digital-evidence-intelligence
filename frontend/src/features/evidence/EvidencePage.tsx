@@ -1,29 +1,45 @@
-import { Link, useParams } from "react-router";
+import { useNavigate, useParams, Link } from "react-router";
 import type { Evidence, ListResponse } from "../../api/types";
 import { useResource } from "../../api/useResource";
 import { ApiErrorView, EVIDENCE_TYPE, Icon, PageHeader, StateGlyph, StateView } from "../../design-system";
 import { casePath } from "../../app-shell/navigation";
 import { caseEyebrow, useCase } from "../cases/CaseLayout";
+import { useSession } from "../auth/AuthContext";
+import { EvidenceIntakeForm, EvidenceObjectsPanel } from "./EvidenceIntakeControls";
 import { EvidenceProfileView } from "./EvidenceProfileView";
 
 export function EvidencePage() {
   const c = useCase();
   const { evidenceId } = useParams();
+  const navigate = useNavigate();
+  const session = useSession();
   const list = useResource<ListResponse<Evidence>>(`/api/v1/cases/${c.id}/evidence`);
   const selected = list.status === "ready" ? list.data.items.find((e) => e.id === evidenceId) : undefined;
+  const permissions = session.state.status === "ready"
+    ? session.state.session.case_capabilities[c.id] ?? session.state.session.case_capabilities["*"] ?? []
+    : [];
+  const canIntake = permissions.includes("evidence:intake");
+  const canFinalize = canIntake && permissions.includes("custody:write");
 
   return (
     <>
       <PageHeader
         eyebrow={caseEyebrow(c.id, "Evidence")}
         title="Evidence"
-        description="Registered evidence items and their Evidence Profiles. V1 holds metadata records only; evidence intake, preservation and hashing are reserved for later versions."
+        description="Logical Evidence records remain separate from immutable EvidenceObjects. Authorized users can stream files into private quarantine, compute integrity values, validate basic signatures and record the initial custody lifecycle."
+      />
+      <EvidenceIntakeForm
+        caseId={c.id}
+        canIntake={canIntake}
+        canFinalize={canFinalize}
+        onCreated={(id) => navigate(casePath(c.id, `evidence/${id}`))}
+        onChanged={list.reload}
       />
       {list.status === "loading" && <StateView state="loading" title="Loading evidence register…" />}
       {list.status === "error" && <ApiErrorView error={list.error} subject="Evidence register" onRetry={list.reload} />}
       {list.status === "ready" && list.data.count === 0 && (
         <StateView state="empty" title={`No evidence registered in ${c.id}.`}>
-          Evidence intake is not available in V1, so evidence cannot be added through the application.
+          Evidence records appear here after an authorized intake is registered.
         </StateView>
       )}
       {list.status === "ready" && list.data.count > 0 && (
@@ -66,19 +82,27 @@ export function EvidencePage() {
           </nav>
           <div className="min-w-0">
             {!evidenceId && (
-              <StateView state="empty" title="Select an evidence item to view its Evidence Profile.">
-                Each profile separates Identity, Integrity, Provenance, Quality, Acquisition context and Classification.
+              <StateView state="empty" title="Select an evidence item to view its record.">
+                Each logical Evidence item can have several separately identified acquisitions.
               </StateView>
             )}
             {evidenceId && !selected && (
               <StateView state="unavailable" title={`${evidenceId} is not registered in ${c.id}.`} />
             )}
             {selected && !selected.profile_recorded && (
-              <StateView state="unavailable" title="Evidence profile unavailable.">
-                No Evidence Profile has been recorded for {selected.id} ({selected.label}).
-              </StateView>
+              <div className="surface px-4 py-3 text-xs text-fg-subtle">
+                No Evidence Profile has been recorded for {selected.id}. Intake and integrity records are shown below.
+              </div>
             )}
             {selected && selected.profile_recorded && <EvidenceProfileView caseId={c.id} evidenceId={selected.id} />}
+            {selected && (
+              <EvidenceObjectsPanel
+                caseId={c.id}
+                evidence={selected}
+                permissions={permissions}
+                onChanged={list.reload}
+              />
+            )}
           </div>
         </div>
       )}

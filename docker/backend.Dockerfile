@@ -14,7 +14,9 @@ WORKDIR /srv/backend
 COPY backend/pyproject.toml ./
 RUN python -c "import tomllib; print('\\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" > /tmp/requirements.txt \
  && pip install -r /tmp/requirements.txt && rm /tmp/requirements.txt \
- && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin veritas
+ && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin veritas \
+ && mkdir -p /var/lib/veritas/evidence \
+ && chown -R veritas:veritas /var/lib/veritas/evidence
 
 COPY backend/app ./app
 COPY backend/migrations ./migrations

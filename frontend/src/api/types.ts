@@ -67,6 +67,47 @@ export interface Evidence {
   created_at: string;
 }
 
+export type EvidenceObjectState = "QUARANTINED" | "PRESERVED" | "REJECTED";
+export type EvidenceValidationStatus = "pending" | "accepted" | "rejected";
+export type EvidenceCustodyEventType = "RECEIVED" | "PRESERVED";
+
+export interface EvidenceObject {
+  id: string;
+  evidence_id: string;
+  original_filename: string;
+  declared_media_type: string;
+  detected_media_type: string | null;
+  byte_size: number;
+  sha256: string | null;
+  sha512: string | null;
+  state: EvidenceObjectState;
+  validation_status: EvidenceValidationStatus;
+  validation_note: string | null;
+  acquired_at: string;
+  acquired_by: string;
+  upload_completed_at: string | null;
+  preserved_at: string | null;
+  preserved_by: string | null;
+}
+
+export interface EvidenceDetail {
+  evidence: Evidence;
+  objects: EvidenceObject[];
+}
+
+export interface EvidenceCustodyEvent {
+  id: string;
+  evidence_id: string;
+  evidence_object_id: string;
+  event_type: EvidenceCustodyEventType;
+  from_state: string | null;
+  to_state: string;
+  actor: string;
+  occurred_at: string;
+  reason: string | null;
+  request_id: string;
+}
+
 export interface ProfileAttribute {
   key: string;
   label: string;

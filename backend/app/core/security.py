@@ -180,6 +180,10 @@ def organization_ids_with_capability(
 def has_case_capability(
     session: Session, principal: Principal, case: Case, capability: str
 ) -> bool:
+    # EvidenceObject intake is never allowed on synthetic demonstration Cases, even for
+    # an authenticated principal with an otherwise valid Case-scoped intake assignment.
+    if capability == "evidence:intake" and case.is_demonstration:
+        return False
     if principal.kind == "demonstration_viewer":
         demo_read = {
             "case:read",
@@ -274,7 +278,14 @@ def session_expiry(settings: Settings) -> datetime:
     return utcnow() + timedelta(minutes=settings.session_ttl_minutes)
 
 
-def require_case_capability(capability: str) -> Callable[..., None]:
+def require_case_capability(
+    capability: str,
+    *,
+    authenticated_only: bool = False,
+    non_demonstration_only: bool = False,
+) -> Callable[..., None]:
+    """Enforce a Case capability with optional identity and demo-Case restrictions."""
+
     def _dependency(
         request: Request,
         session: Annotated[Session, Depends(get_session)],
@@ -288,7 +299,15 @@ def require_case_capability(capability: str) -> Callable[..., None]:
         if not isinstance(case_id, str):
             raise NotFoundError("Resource was not found")
         case = get_readable_case(session, principal, case_id)
-        if has_case_capability(session, principal, case, capability):
+        identity_allowed = not authenticated_only or principal.authenticated
+        case_kind_allowed = not non_demonstration_only or not case.is_demonstration
+        if (
+            identity_allowed
+            and case_kind_allowed
+            and has_case_capability(session, principal, case, capability)
+        ):
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                check_csrf(request, principal, session)
             return None
         record_security_event(
             session,

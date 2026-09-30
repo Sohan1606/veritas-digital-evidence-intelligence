@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import func, select
@@ -15,7 +16,14 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.core.security import Principal, has_case_capability
-from app.domain.enums import FindingReviewStatus, NodeType, RelationshipType
+from app.domain.enums import (
+    AttributeBasis,
+    EvidenceObjectState,
+    FindingReviewStatus,
+    NodeType,
+    ProfileStatus,
+    RelationshipType,
+)
 from app.domain.models import (
     AnalysisRun,
     Assessment,
@@ -24,11 +32,14 @@ from app.domain.models import (
     CaseRelationship,
     Claim,
     Evidence,
+    EvidenceCustodyEvent,
+    EvidenceObject,
     EvidenceProfile,
     Finding,
     Observation,
+    User,
 )
-from app.domain.values import PROFILE_STATUS_DEFINITIONS, ProfileSection
+from app.domain.values import PROFILE_STATUS_DEFINITIONS, ProfileAttribute, ProfileSection
 from app.schemas import (
     DEMONSTRATION_NOTICE,
     AnalysisRunOut,
@@ -39,7 +50,10 @@ from app.schemas import (
     CaseSummary,
     ClaimLink,
     ClaimOut,
+    EvidenceCustodyEventOut,
+    EvidenceDetailOut,
     EvidenceLink,
+    EvidenceObjectOut,
     EvidenceOut,
     EvidenceProfileOut,
     FindingLink,
@@ -156,7 +170,154 @@ def list_evidence(session: Session, case: Case) -> list[EvidenceOut]:
     return [_evidence_out(evidence, profile_id is not None) for evidence, profile_id in rows]
 
 
-def evidence_profile(session: Session, case: Case, evidence_public_id: str) -> EvidenceProfileOut:
+def _evidence_object_out(item: EvidenceObject) -> EvidenceObjectOut:
+    return EvidenceObjectOut(
+        id=item.public_id,
+        evidence_id=item.evidence.public_id,
+        original_filename=item.original_filename,
+        declared_media_type=item.declared_media_type,
+        detected_media_type=item.detected_media_type,
+        byte_size=item.byte_size,
+        sha256=item.sha256,
+        sha512=item.sha512,
+        state=item.state,
+        validation_status=item.validation_status,
+        validation_note=item.validation_note,
+        acquired_at=item.acquired_at,
+        acquired_by=item.acquired_by,
+        upload_completed_at=item.upload_completed_at,
+        preserved_at=item.preserved_at,
+        preserved_by=item.preserved_by,
+    )
+
+
+def evidence_intake_detail(
+    session: Session, case: Case, evidence_public_id: str
+) -> EvidenceDetailOut:
+    evidence = session.execute(
+        select(Evidence).where(
+            Evidence.public_id == evidence_public_id, Evidence.case_id == case.id
+        )
+    ).scalar_one_or_none()
+    if evidence is None:
+        raise NotFoundError("Evidence was not found in this case")
+    objects = (
+        session.execute(
+            select(EvidenceObject)
+            .where(EvidenceObject.evidence_id == evidence.id, EvidenceObject.case_id == case.id)
+            .order_by(EvidenceObject.created_at, EvidenceObject.public_id)
+        )
+        .scalars()
+        .all()
+    )
+    return EvidenceDetailOut(
+        evidence=_evidence_out(evidence, evidence.profile is not None),
+        objects=[_evidence_object_out(item) for item in objects],
+    )
+
+
+def evidence_custody_events(
+    session: Session, case: Case, evidence_public_id: str, object_public_id: str
+) -> list[EvidenceCustodyEventOut]:
+    evidence = session.execute(
+        select(Evidence).where(
+            Evidence.public_id == evidence_public_id, Evidence.case_id == case.id
+        )
+    ).scalar_one_or_none()
+    if evidence is None:
+        raise NotFoundError("Evidence was not found in this case")
+    item = session.execute(
+        select(EvidenceObject).where(
+            EvidenceObject.public_id == object_public_id,
+            EvidenceObject.evidence_id == evidence.id,
+            EvidenceObject.case_id == case.id,
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise NotFoundError("Evidence object was not found in this case")
+    rows = session.execute(
+        select(EvidenceCustodyEvent, User.public_id)
+        .join(User, User.id == EvidenceCustodyEvent.actor_user_id)
+        .where(
+            EvidenceCustodyEvent.case_id == case.id,
+            EvidenceCustodyEvent.evidence_id == evidence.id,
+            EvidenceCustodyEvent.evidence_object_id == item.id,
+        )
+        .order_by(EvidenceCustodyEvent.occurred_at, EvidenceCustodyEvent.public_id)
+    ).all()
+    return [
+        EvidenceCustodyEventOut(
+            id=event.public_id,
+            evidence_id=evidence.public_id,
+            evidence_object_id=item.public_id,
+            event_type=event.event_type,
+            from_state=event.from_state,
+            to_state=event.to_state,
+            actor=actor_public_id,
+            occurred_at=event.occurred_at,
+            reason=event.reason,
+            request_id=event.request_id,
+        )
+        for event, actor_public_id in rows
+    ]
+
+
+def _object_integrity_projection(objects: Sequence[EvidenceObject]) -> ProfileSectionOut:
+    attributes: list[ProfileAttribute] = []
+    for index, item in enumerate(objects, start=1):
+        if item.sha256 is None or item.sha512 is None or item.detected_media_type is None:
+            raise RuntimeError("preserved EvidenceObject integrity metadata is incomplete")
+        prefix = f"object_{index}"
+        attributes.extend(
+            [
+                ProfileAttribute(
+                    key=f"{prefix}_sha256",
+                    label=f"{item.public_id} SHA-256",
+                    value=item.sha256,
+                    basis=AttributeBasis.COMPUTED,
+                ),
+                ProfileAttribute(
+                    key=f"{prefix}_sha512",
+                    label=f"{item.public_id} SHA-512",
+                    value=item.sha512,
+                    basis=AttributeBasis.COMPUTED,
+                ),
+                ProfileAttribute(
+                    key=f"{prefix}_byte_size",
+                    label=f"{item.public_id} byte size",
+                    value=str(item.byte_size),
+                    basis=AttributeBasis.COMPUTED,
+                ),
+                ProfileAttribute(
+                    key=f"{prefix}_detected_media_type",
+                    label=f"{item.public_id} detected media type",
+                    value=item.detected_media_type,
+                    basis=AttributeBasis.COMPUTED,
+                ),
+            ]
+        )
+    return ProfileSectionOut(
+        status=ProfileStatus.VERIFIED,
+        attributes=attributes,
+        note=(
+            "Integrity values are projected from preserved EvidenceObjects and recomputed "
+            "by the documented V2.1 procedure. They do not establish authenticity."
+        ),
+    )
+
+
+def evidence_profile(
+    session: Session,
+    case: Case,
+    evidence_public_id: str,
+    *,
+    include_evidence_object_integrity: bool = True,
+) -> EvidenceProfileOut:
+    # Never project V2.1 object data for synthetic demonstration Cases, even if a caller
+    # forgets to pass the principal-aware flag used by the API route.
+    include_evidence_object_integrity = (
+        include_evidence_object_integrity and not case.is_demonstration
+    )
     evidence = session.execute(
         select(Evidence).where(
             Evidence.public_id == evidence_public_id, Evidence.case_id == case.id
@@ -176,16 +337,41 @@ def evidence_profile(session: Session, case: Case, evidence_public_id: str) -> E
             note=parsed.note,
         )
 
+    preserved_objects = (
+        session.execute(
+            select(EvidenceObject)
+            .where(
+                EvidenceObject.case_id == case.id,
+                EvidenceObject.evidence_id == evidence.id,
+                EvidenceObject.state == EvidenceObjectState.PRESERVED,
+            )
+            .order_by(EvidenceObject.preserved_at, EvidenceObject.public_id)
+        )
+        .scalars()
+        .all()
+        if include_evidence_object_integrity
+        else []
+    )
+    integrity = (
+        _object_integrity_projection(preserved_objects)
+        if preserved_objects
+        else section(profile.integrity)
+    )
+    projection_updated_at = max(
+        [profile.updated_at]
+        + [item.preserved_at for item in preserved_objects if item.preserved_at is not None]
+    )
+
     return EvidenceProfileOut(
         evidence=_evidence_out(evidence, True),
         identity=section(profile.identity),
-        integrity=section(profile.integrity),
+        integrity=integrity,
         provenance=section(profile.provenance),
         quality=section(profile.quality),
         acquisition_context=section(profile.acquisition_context),
         classification=section(profile.classification),
         recorded_by=profile.updated_by,
-        updated_at=profile.updated_at,
+        updated_at=projection_updated_at,
         status_definitions=dict(PROFILE_STATUS_DEFINITIONS),
     )
 

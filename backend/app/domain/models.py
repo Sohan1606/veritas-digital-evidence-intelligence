@@ -22,6 +22,9 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
 )
+from sqlalchemy import (
+    inspect as sa_inspect,
+)
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
 
@@ -32,8 +35,11 @@ from app.domain.enums import (
     AssessmentState,
     CaseState,
     ClaimState,
+    EvidenceCustodyEventType,
+    EvidenceObjectState,
     EvidenceState,
     EvidenceType,
+    EvidenceValidationStatus,
     FindingReviewStatus,
     NodeType,
     ObjectiveState,
@@ -194,6 +200,109 @@ class Evidence(PublicIdMixin, TimestampedMixin, Base):
     )
 
     profile: Mapped[EvidenceProfile | None] = relationship(back_populates="evidence")
+    objects: Mapped[list[EvidenceObject]] = relationship(back_populates="evidence")
+
+
+class EvidenceObject(PublicIdMixin, TimestampedMixin, Base):
+    """One immutable stored acquisition associated with a logical Evidence record."""
+
+    __tablename__ = "evidence_objects"
+    __public_id_prefix__ = "EOBJ"
+    __table_args__ = (
+        CheckConstraint("state IN ('QUARANTINED', 'PRESERVED', 'REJECTED')", name="object_state"),
+        CheckConstraint(
+            "validation_status IN ('pending', 'accepted', 'rejected')", name="validation_status"
+        ),
+        CheckConstraint("byte_size >= 0", name="byte_size_nonnegative"),
+        CheckConstraint("sha256 IS NULL OR length(sha256) = 64", name="sha256_length"),
+        CheckConstraint("sha512 IS NULL OR length(sha512) = 128", name="sha512_length"),
+        CheckConstraint(
+            "(upload_completed_at IS NULL AND sha256 IS NULL AND sha512 IS NULL AND byte_size = 0)"
+            " OR (upload_completed_at IS NOT NULL AND sha256 IS NOT NULL AND sha512 IS NOT NULL)",
+            name="upload_digest_consistency",
+        ),
+        CheckConstraint(
+            "state != 'PRESERVED' OR (upload_completed_at IS NOT NULL "
+            "AND detected_media_type IS NOT NULL AND validation_status = 'accepted' "
+            "AND preserved_at IS NOT NULL AND preserved_by IS NOT NULL)",
+            name="preserved_metadata_consistency",
+        ),
+        CheckConstraint(
+            "state != 'REJECTED' OR validation_status = 'rejected'",
+            name="rejected_validation_consistency",
+        ),
+        UniqueConstraint("storage_key", name="uq_evidence_objects_storage_key"),
+    )
+
+    case_id: Mapped[uuid.UUID] = case_fk()
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), index=True
+    )
+    evidence_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence.id", ondelete="RESTRICT"), index=True
+    )
+    storage_key: Mapped[str] = mapped_column(String(64))
+    original_filename: Mapped[str] = mapped_column(String(255))
+    declared_media_type: Mapped[str] = mapped_column(String(127))
+    detected_media_type: Mapped[str | None] = mapped_column(String(127))
+    byte_size: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    sha512: Mapped[str | None] = mapped_column(String(128))
+    state: Mapped[EvidenceObjectState] = mapped_column(
+        state_column(EvidenceObjectState), default=EvidenceObjectState.QUARANTINED
+    )
+    validation_status: Mapped[EvidenceValidationStatus] = mapped_column(
+        state_column(EvidenceValidationStatus), default=EvidenceValidationStatus.PENDING
+    )
+    validation_note: Mapped[str | None] = mapped_column(String(500))
+    acquired_at: Mapped[datetime] = mapped_column(default=utcnow)
+    acquired_by: Mapped[str] = mapped_column(String(ACTOR_LENGTH))
+    upload_completed_at: Mapped[datetime | None]
+    preserved_at: Mapped[datetime | None]
+    preserved_by: Mapped[str | None] = mapped_column(String(ACTOR_LENGTH))
+
+    evidence: Mapped[Evidence] = relationship(back_populates="objects")
+
+
+class EvidenceCustodyEvent(PublicIdMixin, TimestampedMixin, Base):
+    """Append-only record of the two custody events implemented in V2.1."""
+
+    __tablename__ = "evidence_custody_events"
+    __public_id_prefix__ = "CST"
+    __table_args__ = (
+        CheckConstraint("event_type IN ('RECEIVED', 'PRESERVED')", name="custody_event_type"),
+        CheckConstraint(
+            "(event_type = 'RECEIVED' AND from_state IS NULL AND to_state = 'QUARANTINED')"
+            " OR (event_type = 'PRESERVED' AND from_state = 'QUARANTINED'"
+            " AND to_state = 'PRESERVED')",
+            name="custody_state_transition",
+        ),
+    )
+
+    case_id: Mapped[uuid.UUID] = case_fk()
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), index=True
+    )
+    evidence_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence.id", ondelete="RESTRICT"), index=True
+    )
+    evidence_object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evidence_objects.id", ondelete="RESTRICT"), index=True
+    )
+    event_type: Mapped[EvidenceCustodyEventType] = mapped_column(
+        state_column(EvidenceCustodyEventType)
+    )
+    from_state: Mapped[str | None] = mapped_column(String(32))
+    to_state: Mapped[str] = mapped_column(String(32))
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    counterparty_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    reason: Mapped[str | None] = mapped_column(String(500))
+    occurred_at: Mapped[datetime] = mapped_column(default=utcnow)
+    request_id: Mapped[str] = mapped_column(String(64), default="unknown")
 
 
 class EvidenceProfile(TimestampedMixin, Base):
@@ -358,8 +467,77 @@ class AuditEvent(PublicIdMixin, Base):
     details: Mapped[dict[str, Any]] = mapped_column(default=dict)
 
 
+class EvidenceObjectImmutableError(RuntimeError):
+    """Raised when a stored-object lifecycle or immutable record is rewritten."""
+
+
+class EvidenceCustodyEventImmutableError(RuntimeError):
+    """Raised when append-only custody history is changed through the ORM."""
+
+
 class AuditEventImmutableError(RuntimeError):
     pass
+
+
+_EVIDENCE_QUARANTINE_MUTABLE = frozenset(
+    {
+        "byte_size",
+        "sha256",
+        "sha512",
+        "upload_completed_at",
+        "detected_media_type",
+        "state",
+        "validation_status",
+        "validation_note",
+        "preserved_at",
+        "preserved_by",
+        "updated_at",
+        "updated_by",
+    }
+)
+
+
+@event.listens_for(EvidenceObject, "before_update")
+def _protect_evidence_object(_m: Mapper[Any], _c: Connection, target: EvidenceObject) -> None:
+    state = sa_inspect(target)
+    previous = state.attrs.state.history.deleted
+    old_state = previous[0] if previous else target.state
+    new_state = target.state
+    if old_state in (EvidenceObjectState.PRESERVED, EvidenceObjectState.REJECTED):
+        raise EvidenceObjectImmutableError("final evidence objects are immutable")
+    if new_state not in (
+        EvidenceObjectState.QUARANTINED,
+        EvidenceObjectState.PRESERVED,
+        EvidenceObjectState.REJECTED,
+    ):
+        raise EvidenceObjectImmutableError("unsupported evidence object state transition")
+    if new_state is not old_state and (
+        old_state is not EvidenceObjectState.QUARANTINED
+        or new_state not in (EvidenceObjectState.PRESERVED, EvidenceObjectState.REJECTED)
+    ):
+        raise EvidenceObjectImmutableError("unsupported evidence object state transition")
+    changed = {attribute.key for attribute in state.attrs if attribute.history.has_changes()}
+    if changed - _EVIDENCE_QUARANTINE_MUTABLE:
+        raise EvidenceObjectImmutableError("evidence object metadata is immutable")
+    for digest_name in ("sha256", "sha512", "upload_completed_at"):
+        history = state.attrs[digest_name].history
+        if history.deleted and history.deleted[0] is not None:
+            raise EvidenceObjectImmutableError("completed upload metadata is immutable")
+
+
+@event.listens_for(EvidenceObject, "before_delete")
+def _forbid_evidence_object_delete(_m: Mapper[Any], _c: Connection, _t: EvidenceObject) -> None:
+    raise EvidenceObjectImmutableError("evidence objects cannot be deleted")
+
+
+@event.listens_for(EvidenceCustodyEvent, "before_update")
+def _forbid_custody_update(_m: Mapper[Any], _c: Connection, _t: EvidenceCustodyEvent) -> None:
+    raise EvidenceCustodyEventImmutableError("custody events are append-only")
+
+
+@event.listens_for(EvidenceCustodyEvent, "before_delete")
+def _forbid_custody_delete(_m: Mapper[Any], _c: Connection, _t: EvidenceCustodyEvent) -> None:
+    raise EvidenceCustodyEventImmutableError("custody events are append-only")
 
 
 @event.listens_for(AuditEvent, "before_update")

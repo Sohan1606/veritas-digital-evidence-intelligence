@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     max_request_bytes: int = Field(default=1_048_576, ge=1_024, le=16_777_216)
+    evidence_storage_root: Path = Path("./data/evidence")
+    max_evidence_bytes: int = Field(default=104_857_600, ge=1, le=1_073_741_824)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     expose_api_docs: bool = False
     session_ttl_minutes: int = Field(default=720, ge=5, le=1_440)

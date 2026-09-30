@@ -7,6 +7,8 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
         {
             "case:read",
             "evidence:read",
+            "evidence:intake",
+            "custody:read",
             "findings:read",
             "claims:read",
             "graph:read",
@@ -26,7 +28,16 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
             "examination:read",
         }
     ),
-    "CUSTODIAN": frozenset({"case:read", "evidence:read", "case_audit:read", "custody:read"}),
+    "CUSTODIAN": frozenset(
+        {
+            "case:read",
+            "evidence:read",
+            "evidence:intake",
+            "case_audit:read",
+            "custody:read",
+            "custody:write",
+        }
+    ),
     "ADMINISTRATOR": frozenset(
         {"users:read", "roles:assign", "users:manage", "security_audit:read", "identity:read"}
     ),
