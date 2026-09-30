@@ -70,7 +70,7 @@ TEXT_SUFFIXES = {
 @cache
 def repo_files() -> tuple[Path, ...]:
     out = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],  # noqa: S607
         cwd=ROOT,
         capture_output=True,
         check=True,
@@ -83,9 +83,7 @@ def rel(path: Path) -> str:
 
 
 def text_files() -> list[Path]:
-    return [
-        p for p in repo_files() if p.suffix in TEXT_SUFFIXES or p.name.startswith(".")
-    ]
+    return [p for p in repo_files() if p.suffix in TEXT_SUFFIXES or p.name.startswith(".")]
 
 
 def is_test_file(path: Path) -> bool:
@@ -95,9 +93,7 @@ def is_test_file(path: Path) -> bool:
 
 def test_no_environment_files_committed() -> None:
     offenders = [
-        rel(p)
-        for p in repo_files()
-        if p.name.startswith(".env") and p.name != ".env.example"
+        rel(p) for p in repo_files() if p.name.startswith(".env") and p.name != ".env.example"
     ]
     assert offenders == []
 
@@ -123,12 +119,8 @@ TEST_FILE_EXEMPT = {"credential in URL"}
 @pytest.mark.parametrize("name", sorted(SECRET_PATTERNS))
 def test_no_secrets(name: str) -> None:
     pattern = SECRET_PATTERNS[name]
-    candidates = [
-        p for p in text_files() if not (name in TEST_FILE_EXEMPT and is_test_file(p))
-    ]
-    offenders = [
-        rel(p) for p in candidates if pattern.search(p.read_text(errors="ignore"))
-    ]
+    candidates = [p for p in text_files() if not (name in TEST_FILE_EXEMPT and is_test_file(p))]
+    offenders = [rel(p) for p in candidates if pattern.search(p.read_text(errors="ignore"))]
     assert offenders == []
 
 
@@ -139,9 +131,7 @@ def test_no_evidence_media_archives_or_databases() -> None:
 
 def test_no_generated_or_dependency_directories() -> None:
     offenders = [
-        rel(p)
-        for p in repo_files()
-        if FORBIDDEN_DIRS.intersection(p.relative_to(ROOT).parts)
+        rel(p) for p in repo_files() if FORBIDDEN_DIRS.intersection(p.relative_to(ROOT).parts)
     ]
     assert offenders == []
 
@@ -177,9 +167,7 @@ def test_frontend_source_never_addresses_backend_host_directly() -> None:
 
 def test_demonstration_data_is_labelled() -> None:
     notice = "DEMONSTRATION DATA — NOT REAL EVIDENCE"
-    assert notice in (ROOT / "backend" / "app" / "schemas.py").read_text(
-        encoding="utf-8"
-    )
+    assert notice in (ROOT / "backend" / "app" / "schemas.py").read_text(encoding="utf-8")
     assert notice in (ROOT / "backend" / "app" / "seed.py").read_text(encoding="utf-8")
 
 
