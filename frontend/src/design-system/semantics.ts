@@ -6,6 +6,7 @@ import type {
   AssessmentState,
   CaseState,
   ClaimState,
+  EvidenceIntegrityResult,
   EvidenceType,
   FindingReviewStatus,
   NodeType,
@@ -29,6 +30,13 @@ export const PROFILE_STATUS: Record<ProfileStatus, StateSemantics> = {
   partial: { label: "Partial", tone: "warn", glyph: "half" },
   unknown: { label: "Unknown", tone: "neutral", glyph: "ring" },
   not_available: { label: "Not available", tone: "muted", glyph: "dashed" },
+};
+
+/** Integrity verification outcomes. Neutral wording: a mismatch is a difference, never a verdict. */
+export const INTEGRITY_RESULT: Record<EvidenceIntegrityResult, StateSemantics> = {
+  MATCH: { label: "Integrity match", tone: "ok", glyph: "filled" },
+  MISMATCH: { label: "Integrity mismatch", tone: "warn", glyph: "diamond" },
+  UNAVAILABLE: { label: "Verification unavailable", tone: "muted", glyph: "dashed" },
 };
 
 export const REVIEW_STATUS: Record<FindingReviewStatus, StateSemantics> = {

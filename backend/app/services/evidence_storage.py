@@ -13,6 +13,7 @@ from typing import BinaryIO, Protocol
 
 _STORAGE_KEY = re.compile(r"^[0-9a-f]{32}$")
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
 
 class DirectoryFsyncResult(Enum):
@@ -113,15 +114,26 @@ class LocalEvidenceStorage:
 
     @staticmethod
     def _open_existing(path: Path) -> BinaryIO:
+        """Open an existing regular file read-only, never following a link or blocking.
+
+        ``O_NONBLOCK`` stops a FIFO swapped in for a stored object from blocking the calling
+        thread inside ``open``; the regular-file check then rejects it. The descriptor is
+        closed on every failure path, so a failed open cannot leak a file descriptor.
+        """
+        descriptor = -1
         try:
-            descriptor = os.open(path, os.O_RDONLY | _NOFOLLOW)
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode):
-                os.close(descriptor)
+            descriptor = os.open(path, os.O_RDONLY | _NOFOLLOW | _NONBLOCK)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 raise OSError("invalid evidence object")
-            return os.fdopen(descriptor, "rb")
+            stream = os.fdopen(descriptor, "rb")
+            descriptor = -1  # the file object now owns the descriptor
+            return stream
         except OSError:
             raise EvidenceStorageFailure("Evidence storage operation failed") from None
+        finally:
+            if descriptor >= 0:
+                with suppress(OSError):
+                    os.close(descriptor)
 
     def create_quarantine_object(self, storage_key: str) -> QuarantineHandle:
         self._validate_key(storage_key)

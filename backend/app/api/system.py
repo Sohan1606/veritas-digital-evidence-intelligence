@@ -67,6 +67,14 @@ CAPABILITIES: tuple[CapabilityOut, ...] = (
         "establish authenticity or perform forensic examination.",
     ),
     CapabilityOut(
+        key="evidence_retrieval_verification",
+        label="Evidence retrieval & integrity verification",
+        status="available",
+        note="Authorized retrieval of PRESERVED EvidenceObject bytes and independent recomputation "
+        "of byte count, SHA-256 and SHA-512 against the immutable intake values. Integrity "
+        "verification is not an authenticity determination.",
+    ),
+    CapabilityOut(
         key="examination",
         label="Automated examination",
         status="reserved",

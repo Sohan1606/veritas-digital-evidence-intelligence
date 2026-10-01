@@ -5,9 +5,11 @@ finding to its basis and keep conclusions open to human review. Its principle:
 **automate work, not accountability.** Evidence is treated as untrusted data, never as
 instructions, and the system is not a source of forensic truth.
 
-> **Status: cumulative V2.1 foundation.** V2 adds provisioned identity, server-side sessions,
+> **Status: cumulative V2.2 foundation.** V2 adds provisioned identity, server-side sessions,
 > explicit capabilities and Case-scoped backend authorization to the independently verified V1
-> foundation. V2.1 adds private Evidence intake mechanics. Seeded demonstration records remain
+> foundation. V2.1 adds private Evidence intake mechanics. V2.2 adds authorized retrieval and
+> independent integrity verification of preserved EvidenceObjects.
+> **INTEGRITY MATCH IS NOT AUTHENTICITY PROOF.** Seeded demonstration records remain
 > synthetic metadata only—not real evidence; no forensic conclusion is produced.
 
 ## Scope
@@ -17,7 +19,7 @@ Observation, Finding, Claim, Assessment, Case Knowledge Graph, and append-only A
 the read-only case API and investigator shell; the synthetic demo dataset; the structured error
 contract; and the PostgreSQL/SQLAlchemy/Alembic architecture.
 
-**Implemented cumulatively through V2.1:**
+**Implemented cumulatively through V2.2:**
 
 - Provisioned Users (no public signup), Organizations and memberships, a canonical six-role
   catalog, case-scoped role assignments, and immutable public identifiers (`USR-001`,
@@ -47,7 +49,14 @@ contract; and the PostgreSQL/SQLAlchemy/Alembic architecture.
   The original `Evidence` and `EvidenceProfile` remain the only logical record/profile concepts.
   Demonstration Cases cannot receive or expose V2.1 EvidenceObject/custody data; anonymous V1
   demo access retains synthetic Evidence/Profile behavior without object-derived hashes. There is
-  no generic evidence-byte download endpoint.
+  no generic evidence-byte endpoint; bytes are reachable only per PRESERVED EvidenceObject (V2.2).
+- V2.2 adds, for PRESERVED EvidenceObjects only: authenticated, Case-authorized, bounded-chunk
+  retrieval of the exact preserved bytes, and an independent integrity verification that
+  recomputes byte count, SHA-256 and SHA-512 and reports `MATCH`, `MISMATCH` or `UNAVAILABLE`
+  against the immutable intake values. Both use the existing `evidence:read` capability and
+  record one canonical `AuditEvent` per operation; verification never modifies an EvidenceObject,
+  its custody history or its stored bytes. No migration, table or capability is added. See
+  [docs/evidence-retrieval-verification-v2.2.md](docs/evidence-retrieval-verification-v2.2.md).
 
 **Not implemented:** forensic examination or authenticity conclusions, semantic file/container
 parsing, OCR/NLP/CV, deepfake or media analysis, automated analysis, agent orchestration, external
@@ -105,7 +114,7 @@ backend/            FastAPI service
   tests/            V1/V2 regressions, intake integrity, auth, authorization, audit and architecture
 frontend/           React/TypeScript shell, Evidence intake/integrity/custody, identity/admin and V1 workspaces
 docker/             Dockerfiles, same-origin nginx proxy and backend-only evidence volume
-docs/               architecture, threat model and V2.1 Evidence intake notes
+docs/               architecture, threat model, V2.1 intake and V2.2 retrieval/verification notes
 scripts/            setup, local dev and deterministic verification
 ```
 
@@ -156,7 +165,12 @@ Existing V1 case routes stay GET-only and retain their response contracts. V2 ad
   `POST /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/finalize`,
   `GET /api/v1/cases/{case_id}/evidence/{evidence_id}/intake`, and
   `GET /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/custody`.
-  No evidence-byte download route is provided.
+- V2.2 retrieval and verification of a PRESERVED EvidenceObject (`evidence:read`, authenticated,
+  non-demonstration Cases only):
+  `GET /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/content` (binary; the
+  same path as the V2.1 upload, different method) and
+  `POST /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/verify`
+  (`MATCH`/`MISMATCH`/`UNAVAILABLE`, CSRF-protected). There is no generic or path-based download.
 
 Login/session JSON contains identity, role/capability and expiry metadata only. The opaque session
 credential is set as an HttpOnly cookie; it is not returned in JSON or stored raw. CSRF material
@@ -219,7 +233,18 @@ scripts/check.sh
 Runs backend Ruff format/lint, strict mypy, full pytest; frontend typecheck, lint, Vitest and
 production build; repository hygiene tests. Backend defaults to temporary SQLite; set
 `VERITAS_TEST_DATABASE_URL` to a PostgreSQL test database to exercise PostgreSQL-only audit
-trigger behavior. CI is in `.github/workflows/ci.yml`.
+trigger behavior (those tests are skipped without it; CI sets it). CI is in
+`.github/workflows/ci.yml`.
+
+V2.2 adds backend tests for authorization (every role, unauthenticated, disabled/expired/revoked
+sessions, cross-Case/Organization, guessed and malformed identifiers, administrator, demonstration
+Cases, QUARANTINED/REJECTED objects), byte-exact and bounded streaming (read sizes recorded; peak
+memory measured while streaming 40 MiB), audit ordering and immutability (SQL-level: only one
+AuditEvent is written), the full tamper and unavailability matrices against real filesystem
+conditions, real database lock timeouts, restart recovery, and a live uvicorn server with real
+client disconnects and concurrent connections. `scripts/qa/v2_2_runtime_check.py` verifies the
+same behavior over HTTP through nginx in a disposable Docker Compose project
+(`veritas-v22-*`; it refuses any other project name and never touches another project's volumes).
 
 V2 security regression coverage includes unknown/disabled/wrong credentials, session cookie
 properties, expiry/logout/replay, IP lockout, CSRF, allowed/denied/cross-case and nonexistent
@@ -236,15 +261,24 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
   organization membership, capabilities and Case scope are independently checked. `AUDITOR`
   case-wide access is limited to the Administrator-provisioned Auditor role and its organization.
 - Existing case-domain projections remain read-only except for the explicit V2.1 Evidence intake
-  endpoints. Intake streams untrusted bytes to private backend storage and performs only bounded,
+  endpoints and the V2.2 verification endpoint (which writes one AuditEvent and nothing else).
+  Intake streams untrusted bytes to private backend storage and performs only bounded,
   deterministic leading-byte checks and hashing; there is no URL fetch, shell execution, external
   AI call, semantic parsing or forensic examination.
+- V2.2 retrieval streams the exact preserved bytes with `Content-Disposition: attachment`, a
+  deterministic filename, `nosniff`, `no-store` and a `default-src 'none'` CSP; it never uses the
+  submitter's filename and never falls back to quarantine or another location. The retrieval audit
+  event is committed before the final chunk is released, so an interrupted transfer records no
+  event but may have delivered most of the object; such attempts appear only in the access log.
+  Any reverse proxy in front of the content route must not buffer responses (the shipped nginx
+  is configured for this). Verification costs a full read and two hashes of the object and is
+  limited only by authentication and the worker pool; there is no per-user rate limit.
 - Security activity is written through canonical `AuditEvent`, which carries an authoritative
   nullable `organization_id`; the security-audit endpoint filters to organizations where the
   caller holds `security_audit:read`. NULL-scoped global/unknown-login events are deliberately
   not returned to any organization. AuditEvent and EvidenceCustodyEvent have ORM append-only
-  guards and PostgreSQL trigger migrations; SQLite test runs establish ORM behavior only. The
-  PostgreSQL-specific trigger tests were skipped when PostgreSQL was unavailable.
+  guards and PostgreSQL trigger migrations; SQLite test runs establish ORM behavior only, and
+  the PostgreSQL-specific trigger tests run only against a PostgreSQL test database.
 - There is no configured OIDC provider or MFA adapter implementation yet. The authentication
   protocol and immutable issuer/subject linkage fields are intended as replacement points, not
   a claim of OIDC/MFA support.
@@ -252,9 +286,13 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
   operator CLI. The console handles authorized status changes and ordinary case-role assignments;
   there is no self-service signup, password reset, or recovery workflow.
 - No review/decision write workflow, forensic examination, reports, or Case Packages are part
-  of V2.1. Seeded synthetic V1 evidence remains metadata only; authorized V2.1 intake can place
-  separately captured bytes in private backend storage. Hashes and signature checks are not an
-  authenticity verdict, forensic certification, or legal-admissibility claim.
+  of V2.2. Seeded synthetic V1 evidence remains metadata only; authorized V2.1 intake can place
+  separately captured bytes in private backend storage, and V2.2 can return and re-hash them.
+  Hashes, signature checks and an integrity `MATCH` are not an authenticity verdict, forensic
+  certification, or legal-admissibility claim. Integrity verification detects a difference from
+  the recorded values; it cannot say why, and says nothing about the bytes before intake. A party
+  with write access to the evidence volume can change stored bytes (there is no WORM storage);
+  VERITAS detects that on the next verification but does not prevent it.
 - Rate limiting is database-backed per observed source IP; distributed-source attacks
   and shared-proxy lockout require additional edge controls. A database superuser can tamper
   with audit storage; external WORM/tamper-evidence export is not implemented.
@@ -270,7 +308,7 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
 Potential later work requires separate design/review gates: OIDC and MFA provider integration;
 organization lifecycle and multi-organization administration; forensic examination; review/decision
 write workflows; case reporting and export; independent external security review; and hardened
-distributed rate limiting and tamper-evident audit export. These are not present in V2.1. Public
+distributed rate limiting and tamper-evident audit export. These are not present in V2.2. Public
 signup and public evidence verification remain out of scope.
 
 ## Demonstration data policy
@@ -280,7 +318,8 @@ The seeded demonstration dataset is synthetic, created by `python -m app.seed`
 labelled **DEMONSTRATION DATA — NOT REAL EVIDENCE** in the API and UI; those demo Evidence rows
 have no associated media bytes in the repository or database. Separately, an authenticated and
 Case-authorized V2.1 intake can store bytes outside the database in the backend-only private
-EvidenceStorage root. Do not place real evidence or credentials in synthetic tests or fixtures.
+EvidenceStorage root, which V2.2 can return and re-hash for the same authorized users. Do not
+place real evidence or credentials in synthetic tests or fixtures.
 
 ## License
 

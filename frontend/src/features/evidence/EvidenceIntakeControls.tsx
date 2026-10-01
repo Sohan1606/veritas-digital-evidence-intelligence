@@ -10,6 +10,7 @@ import type {
 } from "../../api/types";
 import { useResource } from "../../api/useResource";
 import { Button, Panel, RefId, StateView, Tag, Timestamp } from "../../design-system";
+import { PreservedObjectAccess } from "./EvidenceObjectAccess";
 
 const EVIDENCE_TYPES: EvidenceType[] = ["image", "video", "audio", "document", "email", "message_export", "other"];
 const FIELD_CLASS = "mt-1.5 min-h-10 w-full rounded-sm border border-line bg-ink-950 px-3 py-2 text-xs text-fg outline-none focus:border-signal";
@@ -107,7 +108,7 @@ export function EvidenceIntakeForm({
         <h2 id="evidence-intake-title" className="mt-1 text-sm font-semibold text-fg">Register and stream evidence</h2>
         <p className="mt-1 max-w-3xl text-xs leading-relaxed text-fg-subtle">
           File bytes stream to private quarantine. Filename and media type are submitter-declared metadata;
-          hashes and the coarse detected type are server-computed. No file preview or download is provided.
+          hashes and the coarse detected type are server-computed. Preserved objects can be retrieved and independently verified below; no file preview is provided.
         </p>
       </header>
       <form onSubmit={(event) => void submit(event)} className="grid gap-3 px-4 py-4 md:grid-cols-2">
@@ -171,6 +172,7 @@ export function EvidenceObjectsPanel({
   const canIntake = permissions.includes("evidence:intake");
   const canFinalize = canIntake && permissions.includes("custody:write");
   const canReadCustody = permissions.includes("custody:read");
+  const canRead = permissions.includes("evidence:read");
 
   return (
     <section aria-labelledby="stored-objects-title" className="mt-5 space-y-4">
@@ -194,6 +196,7 @@ export function EvidenceObjectsPanel({
           canIntake={canIntake}
           canFinalize={canFinalize}
           canReadCustody={canReadCustody}
+          canRead={canRead}
           onChanged={() => {
             detail.reload();
             onChanged();
@@ -221,6 +224,7 @@ function EvidenceObjectCard({
   canIntake,
   canFinalize,
   canReadCustody,
+  canRead,
   onChanged,
 }: {
   caseId: string;
@@ -228,6 +232,7 @@ function EvidenceObjectCard({
   canIntake: boolean;
   canFinalize: boolean;
   canReadCustody: boolean;
+  canRead: boolean;
   onChanged: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -288,6 +293,7 @@ function EvidenceObjectCard({
         {item.state === "PRESERVED" && item.preserved_at && (
           <p className="text-xs text-fg-subtle">Preserved <Timestamp iso={item.preserved_at} /> by <span className="mono-id text-fg-muted">{item.preserved_by}</span>. These hashes do not establish authenticity.</p>
         )}
+        {item.state === "PRESERVED" && canRead && <PreservedObjectAccess caseId={caseId} item={item} />}
         {item.state === "QUARANTINED" && item.upload_completed_at === null && canIntake && (
           <div className="flex flex-wrap items-end gap-2">
             <label className="grid gap-1 text-xs text-fg-muted">Select content for this registered object

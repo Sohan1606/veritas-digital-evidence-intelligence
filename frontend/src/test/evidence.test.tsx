@@ -46,7 +46,7 @@ describe("Evidence Profile", () => {
     expect((await screen.findAllByText(/no evidence profile|profile unavailable|not been recorded/i)).length).toBeGreaterThan(0);
   });
 
-  it("shows preserved-object digests and custody events without exposing a download", async () => {
+  it("shows preserved-object digests and custody events, and offers no retrieval without evidence:read", async () => {
     mockApi();
     render(
       <EvidenceObjectsPanel
@@ -61,7 +61,10 @@ describe("Evidence Profile", () => {
     expect(await screen.findByText("Custody history")).toBeInTheDocument();
     expect(screen.getByText("RECEIVED")).toBeInTheDocument();
     expect(screen.getAllByText("PRESERVED")).toHaveLength(2);
+    // V2.2: retrieval and verification exist, but only as explicit actions for evidence:read.
     expect(screen.queryByRole("link", { name: /download/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^retrieve$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^verify$/i })).not.toBeInTheDocument();
   });
 
   it("renders intake controls only when the case capability is present", () => {

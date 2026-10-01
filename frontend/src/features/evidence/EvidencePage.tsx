@@ -26,7 +26,7 @@ export function EvidencePage() {
       <PageHeader
         eyebrow={caseEyebrow(c.id, "Evidence")}
         title="Evidence"
-        description="Logical Evidence records remain separate from immutable EvidenceObjects. Authorized users can stream files into private quarantine, compute integrity values, validate basic signatures and record the initial custody lifecycle."
+        description="Logical Evidence records remain separate from immutable EvidenceObjects. Authorized users can stream files into private quarantine, compute integrity values, validate basic signatures and record the initial custody lifecycle. Preserved bytes can be retrieved and independently verified; a match is an integrity result, not proof of authenticity."
       />
       <EvidenceIntakeForm
         caseId={c.id}

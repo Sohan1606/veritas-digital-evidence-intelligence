@@ -55,6 +55,7 @@ def test_system_info_reports_measured_state_only(client: TestClient, database_ur
     assert keys["identity"] == "available"
     assert keys["examination"] == "reserved"
     assert keys["evidence_intake"] == "available"
+    assert keys["evidence_retrieval_verification"] == "available"
     # The database URL (and anything in it) must never be exposed.
     assert database_url not in client.get("/api/v1/system").text
 

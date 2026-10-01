@@ -216,9 +216,16 @@ def evidence_intake_detail(
     )
 
 
-def evidence_custody_events(
+def get_evidence_object(
     session: Session, case: Case, evidence_public_id: str, object_public_id: str
-) -> list[EvidenceCustodyEventOut]:
+) -> tuple[Evidence, EvidenceObject]:
+    """Resolve an EvidenceObject strictly inside its Case and Evidence (non-locking read).
+
+    The caller has already authorized the Case. Evidence is constrained to that Case and the
+    EvidenceObject to both, so a guessed public identifier belonging to another Case or another
+    Evidence item cannot resolve. ``evidence_intake._locked_object`` is the ``FOR UPDATE``
+    variant used only by the intake write path.
+    """
     evidence = session.execute(
         select(Evidence).where(
             Evidence.public_id == evidence_public_id, Evidence.case_id == case.id
@@ -235,6 +242,13 @@ def evidence_custody_events(
     ).scalar_one_or_none()
     if item is None:
         raise NotFoundError("Evidence object was not found in this case")
+    return evidence, item
+
+
+def evidence_custody_events(
+    session: Session, case: Case, evidence_public_id: str, object_public_id: str
+) -> list[EvidenceCustodyEventOut]:
+    evidence, item = get_evidence_object(session, case, evidence_public_id, object_public_id)
     rows = session.execute(
         select(EvidenceCustodyEvent, User.public_id)
         .join(User, User.id == EvidenceCustodyEvent.actor_user_id)

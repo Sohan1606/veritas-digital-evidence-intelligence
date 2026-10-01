@@ -17,6 +17,7 @@ from app.domain.enums import (
     CaseState,
     ClaimState,
     EvidenceCustodyEventType,
+    EvidenceIntegrityResult,
     EvidenceObjectState,
     EvidenceState,
     EvidenceType,
@@ -172,6 +173,32 @@ class EvidenceCustodyEventOut(ApiModel):
     occurred_at: datetime
     reason: str | None
     request_id: str
+
+
+class EvidenceIntegrityVerificationOut(ApiModel):
+    """One independent integrity verification of a PRESERVED EvidenceObject.
+
+    Observational only: producing this record never changes an EvidenceObject, its custody
+    history, or its recorded integrity values. ``byte_size``, ``sha256`` and ``sha512`` are the
+    immutable values recorded at intake (the same fields as ``EvidenceObjectOut``). The
+    ``expected_*``/``computed_*`` pairs are present only for MISMATCH. The result is an
+    integrity comparison, never an authenticity determination.
+    """
+
+    evidence_object_id: str
+    result: EvidenceIntegrityResult
+    byte_size: int
+    sha256: str
+    sha512: str
+    verified_at: datetime
+    verified_by: str
+    message: str
+    expected_byte_size: int | None = None
+    computed_byte_size: int | None = None
+    expected_sha256: str | None = None
+    computed_sha256: str | None = None
+    expected_sha512: str | None = None
+    computed_sha512: str | None = None
 
 
 class ProfileSectionOut(ApiModel):

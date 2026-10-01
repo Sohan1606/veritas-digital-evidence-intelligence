@@ -29,6 +29,8 @@ The Investigator role can register and stream but does not hold `custody:write`,
 
 There is deliberately **no generic evidence-byte download route**. The UI displays metadata, digests, validation result, lifecycle and authorized custody history, not the stored evidence bytes or filesystem location.
 
+> **Superseded in part by V2.2.** V2.2 adds authenticated, Case-authorized retrieval of a PRESERVED EvidenceObject's bytes and an independent integrity verification (`GET …/content`, `POST …/verify`, both requiring `evidence:read`). There is still no *generic* or path-based download, and the filesystem location is never exposed. See [evidence-retrieval-verification-v2.2.md](evidence-retrieval-verification-v2.2.md).
+
 ### Demonstration-mode boundary
 
 No V2.1 intake or additional EvidenceObject creation is permitted for a Case marked `is_demonstration`, even for an authenticated user with a Case assignment; both centralized authorization and the intake service enforce this. The anonymous V1 demonstration viewer may continue to list synthetic Evidence and use its V1 Evidence Profile route, but cannot read V2.1 intake metadata or custody events. V2.1 object-detail and custody endpoints reject demonstration Cases even for authenticated callers, and the existing profile endpoint omits EvidenceObject-derived hashes and other integrity values for every demonstration Case. Authenticated restricted-mode users retain the V2.1 workflow on non-demonstration Cases. These controls are enforced server-side, not just by UI visibility.
