@@ -34,8 +34,20 @@ function classify(status: number): ApiFailureKind {
   return "server";
 }
 
+/**
+ * API paths are same-origin absolute paths ("/api/…"). A bare startsWith("/") is not enough:
+ * "//host/x" is protocol-relative, and "/\host/x" or "/<TAB>/host/x" are read as "//host/x" by
+ * URL parsers (which drop tabs/newlines and treat "\" as "/"), so each would address another host.
+ */
+function assertSameOriginPath(path: string): void {
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what is rejected
+  if (!/^\/(?![/\\])[^\u0000-\u0020\u007f\\]*$/.test(path)) {
+    throw new Error("API paths must be relative to the current origin");
+  }
+}
+
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  if (!path.startsWith("/")) throw new Error("API paths must be relative to the current origin");
+  assertSameOriginPath(path);
   let response: Response;
   try {
     response = await fetch(path, { headers: { Accept: "application/json" }, signal, credentials: "same-origin" });
@@ -75,7 +87,7 @@ export async function apiMutation<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  if (!path.startsWith("/")) throw new Error("API paths must be relative to the current origin");
+  assertSameOriginPath(path);
   let response: Response;
   try {
     const csrf = readCookie("veritas_csrf");
@@ -109,7 +121,7 @@ export async function apiMutation<T>(
 
 /** Raw, same-origin binary upload. Evidence bytes are never JSON-encoded or logged here. */
 export async function apiUpload<T>(path: string, content: Blob): Promise<T> {
-  if (!path.startsWith("/")) throw new Error("API paths must be relative to the current origin");
+  assertSameOriginPath(path);
   let response: Response;
   try {
     const csrf = readCookie("veritas_csrf");
@@ -139,4 +151,38 @@ export async function apiUpload<T>(path: string, content: Blob): Promise<T> {
     );
   }
   return payload as T;
+}
+
+/** A single safe filename from a Content-Disposition header, or null if it is anything else. */
+function headerFilename(disposition: string | null): string | null {
+  const name = /filename="([^"\\/\r\n]{1,64})"/.exec(disposition ?? "")?.[1];
+  return name && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? name : null;
+}
+
+/**
+ * Same-origin binary retrieval. The bytes are handed back to the caller and nowhere else:
+ * they are never JSON-parsed, logged, or kept in this module. Failures use the same
+ * structured envelope and classification as every other API call.
+ */
+export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string | null }> {
+  assertSameOriginPath(path);
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: "same-origin" });
+  } catch {
+    throw new ApiError("unreachable", "The VERITAS API could not be reached.", null, null, null);
+  }
+  const requestId = response.headers.get("x-request-id");
+  if (!response.ok) {
+    const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
+    const payload: ErrorEnvelope = isJson ? await response.json().catch(() => ({})) : {};
+    throw new ApiError(
+      classify(response.status),
+      payload.error?.message ?? `Request failed (${response.status}).`,
+      response.status,
+      payload.error?.code ?? null,
+      payload.error?.request_id ?? requestId,
+    );
+  }
+  return { blob: await response.blob(), filename: headerFilename(response.headers.get("content-disposition")) };
 }

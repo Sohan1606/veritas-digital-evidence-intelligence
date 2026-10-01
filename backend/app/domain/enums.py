@@ -61,6 +61,25 @@ class EvidenceAuditAction(StrEnum):
     UPLOAD_COMPLETED = "evidence.upload.completed"
     PRESERVED = "evidence.preserved"
     REJECTED = "evidence.rejected"
+    OBJECT_RETRIEVED = "evidence.object.retrieved"
+    OBJECT_INTEGRITY_VERIFIED = "evidence.object.integrity_verified"
+
+
+class EvidenceIntegrityResult(StrEnum):
+    """Outcome of one independent integrity verification of a PRESERVED EvidenceObject.
+
+    MATCH: the recomputed byte count, SHA-256 and SHA-512 equal the immutable intake values.
+    MISMATCH: every byte was read and at least one recomputed value differs.
+    UNAVAILABLE: the preserved bytes could not be read, so no comparison was made. A storage
+    failure is never reported as MISMATCH, and an authorization failure is never UNAVAILABLE
+    (authorization is decided before any storage access).
+
+    A MATCH is an integrity comparison only. It is not an authenticity determination.
+    """
+
+    MATCH = "MATCH"
+    MISMATCH = "MISMATCH"
+    UNAVAILABLE = "UNAVAILABLE"
 
 
 class ProfileStatus(StrEnum):

@@ -95,6 +95,30 @@ export interface EvidenceDetail {
   objects: EvidenceObject[];
 }
 
+/** Outcome of one independent integrity verification. A match is not an authenticity finding. */
+export type EvidenceIntegrityResult = "MATCH" | "MISMATCH" | "UNAVAILABLE";
+
+/**
+ * Mirrors backend EvidenceIntegrityVerificationOut. byte_size/sha256/sha512 are the values
+ * recorded at intake; the expected_/computed_ pairs are present only for MISMATCH.
+ */
+export interface EvidenceIntegrityVerification {
+  evidence_object_id: string;
+  result: EvidenceIntegrityResult;
+  byte_size: number;
+  sha256: string;
+  sha512: string;
+  verified_at: string;
+  verified_by: string;
+  message: string;
+  expected_byte_size?: number;
+  computed_byte_size?: number;
+  expected_sha256?: string;
+  computed_sha256?: string;
+  expected_sha512?: string;
+  computed_sha512?: string;
+}
+
 export interface EvidenceCustodyEvent {
   id: string;
   evidence_id: string;

@@ -1,6 +1,6 @@
-# VERITAS architecture (cumulative V1 + V2.1)
+# VERITAS architecture (cumulative V1 + V2.2)
 
-This document records the cumulative V1/V2/V2.1 architecture. V2 extends the independently verified V1 foundation, and V2.1 adds Evidence intake without replacing the V2 identity/access foundation. Each concept has exactly one owner, named below.
+This document records the cumulative V1/V2/V2.1/V2.2 architecture. V2 extends the independently verified V1 foundation, V2.1 adds Evidence intake without replacing the V2 identity/access foundation, and V2.2 adds retrieval and integrity verification of preserved EvidenceObjects without a new storage, audit or authorization system. Each concept has exactly one owner, named below.
 
 ## 1. System shape
 
@@ -16,7 +16,9 @@ browser ──► same origin ──► /            static frontend (Vite build
 * Existing V1 case-domain read projections remain read-only. V2 adds authentication and identity
   administration writes. V2.1 adds only explicit Case-scoped Evidence intake writes: the API
   streams raw bytes to a private backend storage abstraction and does not provide URL fetching,
-  shell execution, semantic file parsing, forensic examination or external AI calls.
+  shell execution, semantic file parsing, forensic examination or external AI calls. V2.2 adds
+  one read of those preserved bytes (`GET …/content`) and one observational recomputation
+  (`POST …/verify`, which writes a single AuditEvent).
 
 ## 2. Canonical domain
 
@@ -171,8 +173,9 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
 
 1. **Monorepo, two deployables** (`backend/`, `frontend/`) with shared scripts, Docker and CI.
 2. **Cumulative API boundary:** existing V1 projections remain read-only; V2 adds authentication
-   and identity-administration endpoints, and V2.1 adds explicit Case-authorized Evidence intake,
-   metadata and custody routes. No generic byte-download or reserved-workflow stub is added.
+   and identity-administration endpoints, V2.1 adds explicit Case-authorized Evidence intake,
+   metadata and custody routes, and V2.2 adds per-EvidenceObject retrieval and verification. No
+   generic or path-based download and no reserved-workflow stub is added.
 3. **Relational core + projected graph** instead of a graph database: one source of truth,
    referential integrity, and graph semantics kept in code.
 4. **Public IDs separate from primary keys**: stable, human-readable references without
@@ -229,13 +232,52 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
   authenticated role. Anonymous demo access retains V1 Evidence/Profile behavior but cannot read
   V2.1 object metadata/custody or see object-derived digests through the profile projection.
   Administrator identity privileges are not evidence capabilities. There is no general
-  evidence-byte download endpoint.
+  evidence-byte download endpoint; V2.2 retrieval is per PRESERVED EvidenceObject (section 11).
 * Migration `0003_evidence_intake_integrity` adds the intake/custody schema and PostgreSQL
-  append-only protection. SQLite upgrade/downgrade/re-upgrade and ORM immutability are tested;
-  the PostgreSQL trigger is not verified when PostgreSQL is unavailable. Docker runtime and
-  volume persistence also require a Docker-enabled environment and are not established by static
-  Compose inspection.
+  append-only protection (still the Alembic head in V2.2). SQLite upgrade/downgrade/re-upgrade and
+  ORM immutability are tested; the PostgreSQL trigger tests run only against a PostgreSQL test
+  database. Docker runtime and volume persistence are established only by running the stack, not
+  by static Compose inspection (see `scripts/qa/v2_2_runtime_check.py`).
 * Hashes confirm only the byte sequence VERITAS received and processed. Basic signatures are not
   content parsing or malware analysis; private local storage is not WORM, independently verified
   tamper-proof storage, or a forensic certification. See [the V2.1 implementation notes](evidence-intake-v2.1.md)
   for endpoint contracts and verification boundaries.
+
+## 11. V2.2 Evidence retrieval and integrity verification
+
+* **One owner per concept.** `services/evidence_access.py` owns retrieval and verification.
+  Resolution is `queries.get_evidence_object` (Case → Evidence in Case → EvidenceObject in both;
+  the same resolver the custody query uses). Bytes come only from
+  `EvidenceStorage.open_preserved_object`; recomputation is `evidence_hashing.digest_file`; events
+  go through `records.record_audit_event`; errors use the existing envelope. The vocabulary lives in
+  `domain.enums` (`EvidenceIntegrityResult`, two `EvidenceAuditAction` values) and the response in
+  `schemas.EvidenceIntegrityVerificationOut`. There is no verification table, no cached result,
+  no new capability and no migration: a result is computed on request and recorded only as an
+  AuditEvent.
+* **Authorization first.** Both routes use `require_case_capability("evidence:read",
+  authenticated_only=True, non_demonstration_only=True)` ahead of any resolution or storage
+  access. Denied, demonstration-Case and cross-Case requests are masked as not found; an object
+  that is not `PRESERVED` is a `409`. Authorization failures are never `UNAVAILABLE`.
+* **Retrieval.** A sync route opens the preserved object, reads the first chunk (so early storage
+  failures are a clean `503`), and returns a `RetrievalResponse`: a `StreamingResponse` that closes
+  the preserved-object handle however the response ends. Chunks are at most `HASH_CHUNK_BYTES`
+  and are read in the thread pool; `Content-Length` is the size at open and reads are capped at
+  it. The retrieval AuditEvent is committed before the final chunk is released. No database
+  connection is held while bytes stream.
+* **Verification.** A sync route recomputes byte count, SHA-256 and SHA-512 with bounded reads
+  and compares all three with the recorded values. `MATCH`, `MISMATCH` and `UNAVAILABLE` are all
+  `200` results, each with exactly one AuditEvent; storage failures are `UNAVAILABLE` and never
+  `MISMATCH`. The only SQL writes are that event and its identifier allocation; no row is
+  locked, updated or deleted.
+* **Storage.** `LocalEvidenceStorage._open_existing` now closes its descriptor on every failure
+  path and opens with `O_NONBLOCK`, so a special file swapped in for an object is refused instead
+  of blocking a worker thread.
+* **Edge.** nginx serves the content route with `proxy_buffering off` and
+  `proxy_max_temp_file_size 0` so preserved bytes are streamed through and never spooled to the
+  web container's disk. The evidence volume is still mounted only into the backend.
+* **Frontend.** `features/evidence/EvidenceObjectAccess.tsx` extends the existing EvidenceObject
+  card. State labels come from `design-system/semantics.ts` (`INTEGRITY_RESULT`); retrieval uses
+  `api/client.apiDownload` (same-origin, relative) and never keeps bytes in component state.
+* **Not claimed.** A `MATCH` is an integrity comparison with the intake record, not authenticity,
+  forensic reliability or legal admissibility. See
+  [the V2.2 implementation notes](evidence-retrieval-verification-v2.2.md).

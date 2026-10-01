@@ -15,6 +15,7 @@ import type {
   Evidence,
   EvidenceCustodyEvent,
   EvidenceDetail,
+  EvidenceIntegrityVerification,
   EvidenceObject,
   EvidenceProfile,
   Finding,
@@ -71,6 +72,36 @@ export const evidenceObject: EvidenceObject = {
   upload_completed_at: T,
   preserved_at: T,
   preserved_by: "USR-002",
+};
+
+export const verificationMatch: EvidenceIntegrityVerification = {
+  evidence_object_id: "EOBJ-001",
+  result: "MATCH",
+  byte_size: 128,
+  sha256: "a".repeat(64),
+  sha512: "b".repeat(128),
+  verified_at: T,
+  verified_by: "USR-003",
+  message: "Preserved bytes match the recorded intake integrity values.",
+};
+
+export const verificationMismatch: EvidenceIntegrityVerification = {
+  ...verificationMatch,
+  result: "MISMATCH",
+  message:
+    "Preserved bytes do not match the recorded intake integrity values. This is an integrity comparison only; it does not determine authenticity.",
+  expected_byte_size: 128,
+  computed_byte_size: 127,
+  expected_sha256: "a".repeat(64),
+  computed_sha256: "c".repeat(64),
+  expected_sha512: "b".repeat(128),
+  computed_sha512: "d".repeat(128),
+};
+
+export const verificationUnavailable: EvidenceIntegrityVerification = {
+  ...verificationMatch,
+  result: "UNAVAILABLE",
+  message: "The preserved object could not be read from private evidence storage, so no integrity comparison was made.",
 };
 
 export const evidenceDetail: EvidenceDetail = {

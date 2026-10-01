@@ -41,6 +41,10 @@ _COMPATIBLE_DECLARATIONS: dict[str, frozenset[str]] = {
     "text/plain": frozenset({"text/plain"}),
 }
 
+# The closed set of media types this module can ever report as "detected". Anything outside it
+# (for example a value altered directly in the database) is never echoed to a client.
+SUPPORTED_MEDIA_TYPES: frozenset[str] = frozenset(_COMPATIBLE_DECLARATIONS)
+
 
 def _is_utf8_text(prefix: bytes) -> bool:
     decoder = codecs.getincrementaldecoder("utf-8")("strict")

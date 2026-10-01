@@ -494,7 +494,10 @@ def test_investigator_uploads_and_custodian_preserves_with_audited_custody(
             session.flush()
         session.rollback()
 
-    assert evidence_client.get(content_path(evidence_id, item_id)).status_code == 405
+    # V2.2 compatibility: V2.1 had no GET on this path (it answered 405). The authorized
+    # retrieval route now exists here; see test_evidence_retrieval_api.py for its full contract.
+    retrieved = evidence_client.get(content_path(evidence_id, item_id))
+    assert retrieved.status_code == 200 and retrieved.content == body
 
 
 def test_reacquisition_adds_a_new_object_and_projects_integrity_into_existing_profile(
