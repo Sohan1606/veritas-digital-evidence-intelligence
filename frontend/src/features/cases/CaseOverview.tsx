@@ -40,7 +40,7 @@ export function CaseOverview() {
     : [];
   const tiles: Tile[] = [
     { key: "evidence", label: "Evidence", icon: "evidence", segment: "evidence", value: n.evidence, unit: "registered", detail: "Metadata records · content not ingested" },
-    { key: "examination", label: "Examination", icon: "examination", segment: "examination", value: n.analysis_runs, unit: "analysis runs", detail: "No examination methods are executable in V1" },
+    { key: "examination", label: "Examination", icon: "examination", segment: "examination", value: n.analysis_runs, unit: "analysis runs", detail: c.demonstration ? "Demonstration cases never execute Methods" : "Methods publish Observations from preserved bytes" },
     { key: "findings", label: "Findings", icon: "finding", segment: "findings", value: n.findings, unit: "recorded", detail: `${n.findings_awaiting_review} unreviewed` },
     { key: "claims", label: "Claims", icon: "claim", segment: "claims", value: n.claims, unit: "recorded", detail: `${n.assessments} assessment${n.assessments === 1 ? "" : "s"} recorded` },
     { key: "timeline", label: "Timeline", icon: "timeline", segment: "timeline", value: null, unit: "", detail: "Timeline reconstruction is reserved", reserved: true },

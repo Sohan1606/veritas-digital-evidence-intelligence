@@ -14,6 +14,7 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
             "graph:read",
             "case_audit:read",
             "examination:read",
+            "examination:execute",
         }
     ),
     "REVIEWER": frozenset(
@@ -62,6 +63,7 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
             "claims:read",
             "graph:read",
             "examination:read",
+            "examination:execute",
         }
     ),
 }

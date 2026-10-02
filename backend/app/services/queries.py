@@ -19,6 +19,7 @@ from app.core.security import Principal, has_case_capability
 from app.domain.enums import (
     AttributeBasis,
     EvidenceObjectState,
+    ExaminationFailureCode,
     FindingReviewStatus,
     NodeType,
     ProfileStatus,
@@ -42,6 +43,7 @@ from app.domain.models import (
 from app.domain.values import PROFILE_STATUS_DEFINITIONS, ProfileAttribute, ProfileSection
 from app.schemas import (
     DEMONSTRATION_NOTICE,
+    AnalysisRunDetailOut,
     AnalysisRunOut,
     AssessmentOut,
     AuditEventOut,
@@ -60,6 +62,7 @@ from app.schemas import (
     FindingOut,
     ObjectiveOut,
     ObservationBasis,
+    ObservationOut,
     ProfileSectionOut,
 )
 
@@ -393,25 +396,89 @@ def evidence_profile(
 # --- Examination ------------------------------------------------------------------------
 
 
+def _analysis_run_out(
+    run: AnalysisRun, evidence_public_id: str, object_public_id: str
+) -> AnalysisRunOut:
+    return AnalysisRunOut(
+        id=run.public_id,
+        evidence_id=evidence_public_id,
+        evidence_object_id=object_public_id,
+        method_key=run.method_key,
+        method_version=run.method_version,
+        state=run.state,
+        parameters=dict(run.parameters),
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        cancel_requested_at=run.cancel_requested_at,
+        last_heartbeat_at=run.last_heartbeat_at,
+        failure_code=ExaminationFailureCode(run.failure_code) if run.failure_code else None,
+        failure_message=run.failure_message,
+        created_by=run.created_by,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+    )
+
+
 def list_analysis_runs(session: Session, case: Case) -> list[AnalysisRunOut]:
     rows = session.execute(
-        select(AnalysisRun, Evidence.public_id)
+        select(AnalysisRun, Evidence.public_id, EvidenceObject.public_id)
         .join(Evidence, Evidence.id == AnalysisRun.evidence_id)
+        .join(EvidenceObject, EvidenceObject.id == AnalysisRun.evidence_object_id)
         .where(AnalysisRun.case_id == case.id)
-        .order_by(AnalysisRun.created_at)
+        .order_by(AnalysisRun.created_at, func.length(AnalysisRun.public_id), AnalysisRun.public_id)
+        .execution_options(populate_existing=True)
     ).all()
-    return [
-        AnalysisRunOut(
-            id=run.public_id,
-            evidence_id=evidence_id,
-            method_key=run.method_key,
-            method_version=run.method_version,
-            state=run.state,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-        )
-        for run, evidence_id in rows
-    ]
+    return [_analysis_run_out(run, evidence_id, object_id) for run, evidence_id, object_id in rows]
+
+
+def resolve_analysis_run(
+    session: Session, case: Case, run_public_id: str
+) -> tuple[AnalysisRun, Evidence, EvidenceObject]:
+    """Resolve an Analysis Run strictly inside its Case, with the exact Evidence and
+    EvidenceObject it examined. A guessed identifier from another Case does not resolve."""
+    row = session.execute(
+        select(AnalysisRun, Evidence, EvidenceObject)
+        .join(Evidence, Evidence.id == AnalysisRun.evidence_id)
+        .join(EvidenceObject, EvidenceObject.id == AnalysisRun.evidence_object_id)
+        .where(AnalysisRun.public_id == run_public_id, AnalysisRun.case_id == case.id)
+        # Runs change under compare-and-set updates that bypass the identity map (worker,
+        # cancellation); a projection must never serve a stale instance from this session.
+        .execution_options(populate_existing=True)
+    ).one_or_none()
+    if row is None:
+        raise NotFoundError("Analysis run was not found in this case")
+    return row[0], row[1], row[2]
+
+
+def analysis_run_out(session: Session, case: Case, run_public_id: str) -> AnalysisRunOut:
+    run, evidence, item = resolve_analysis_run(session, case, run_public_id)
+    return _analysis_run_out(run, evidence.public_id, item.public_id)
+
+
+def analysis_run_detail(session: Session, case: Case, run_public_id: str) -> AnalysisRunDetailOut:
+    run, evidence, item = resolve_analysis_run(session, case, run_public_id)
+    observations = session.execute(
+        select(Observation)
+        .where(Observation.case_id == case.id, Observation.analysis_run_id == run.id)
+        # Publication order: identical timestamps fall back to numeric (length-aware) id order.
+        .order_by(Observation.created_at, func.length(Observation.public_id), Observation.public_id)
+    ).scalars()
+    return AnalysisRunDetailOut(
+        **_analysis_run_out(run, evidence.public_id, item.public_id).model_dump(),
+        observations=[
+            ObservationOut(
+                id=obs.public_id,
+                statement=obs.statement,
+                origin=obs.origin,
+                analysis_run_id=run.public_id,
+                evidence_id=evidence.public_id,
+                evidence_label=evidence.label,
+                recorded_by=obs.created_by,
+                created_at=obs.created_at,
+            )
+            for obs in observations
+        ],
+    )
 
 
 # --- Findings & Claims ------------------------------------------------------------------

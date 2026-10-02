@@ -63,7 +63,7 @@ def test_evidence_profile_sections_are_honest(client: TestClient) -> None:
         "classification",
     ]
     assert set(body["status_definitions"]) == {"verified", "partial", "unknown", "not_available"}
-    # Nothing can be verified in V1: no content, no hashing, no examination.
+    # Demonstration evidence has no content: nothing can be hashed or examined.
     assert all(body[name]["status"] != "verified" for name in sections)
     assert body["integrity"]["status"] == "not_available"
     assert body["quality"]["status"] == "not_available"
@@ -116,7 +116,8 @@ def test_claims_with_links_and_assessments(client: TestClient) -> None:
     assert assessment["assessed_by"].startswith("demo:")
 
 
-def test_analysis_runs_are_empty_because_no_methods_exist(client: TestClient) -> None:
+def test_demonstration_case_has_no_analysis_runs(client: TestClient) -> None:
+    # Demonstration Cases never execute examination Methods (V2.3), so they hold no runs.
     assert client.get(f"{BASE}/CASE-001/analysis-runs").json() == {"items": [], "count": 0}
 
 

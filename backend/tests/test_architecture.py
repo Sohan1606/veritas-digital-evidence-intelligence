@@ -145,8 +145,8 @@ def test_route_guards_are_not_vacuous(app: FastAPI) -> None:
     assert len({op.name for op in operations}) == len(operations)
 
 
-def test_case_data_api_writes_are_limited_to_the_explicit_evidence_routes(app: FastAPI) -> None:
-    """Case-scoped reads are GET-only except these explicit evidence routes (by path)."""
+def test_case_data_api_writes_are_limited_to_the_explicit_routes(app: FastAPI) -> None:
+    """Case-scoped reads are GET-only except these explicit evidence and examination routes."""
     evidence = "/api/v1/cases/{case_id}/evidence"
     objects = f"{evidence}/{{evidence_id}}/objects"
     allowed_methods = {
@@ -157,6 +157,10 @@ def test_case_data_api_writes_are_limited_to_the_explicit_evidence_routes(app: F
         f"{objects}/{{object_id}}/finalize": {"POST"},
         # V2.2 independent integrity verification: observational, writes one AuditEvent only.
         f"{objects}/{{object_id}}/verify": {"POST"},
+        # V2.3 examination: queue a run, cancel it, or retry it as a NEW run. Nothing else.
+        "/api/v1/cases/{case_id}/analysis-runs": {"GET", "POST"},
+        "/api/v1/cases/{case_id}/analysis-runs/{run_id}/cancel": {"POST"},
+        "/api/v1/cases/{case_id}/analysis-runs/{run_id}/retry": {"POST"},
     }
     observed: dict[str, set[str]] = {}
     for route in _api_routes(app):

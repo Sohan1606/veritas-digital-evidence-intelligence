@@ -16,7 +16,6 @@ from app.core.security import Principal, get_principal, require_case_capability
 from app.db.session import get_session
 from app.domain.models import Case
 from app.schemas import (
-    AnalysisRunOut,
     AuditEventOut,
     CaseDetail,
     CaseGraph,
@@ -89,16 +88,6 @@ def get_evidence_profile(
         evidence_id,
         include_evidence_object_integrity=(principal.authenticated and not case.is_demonstration),
     )
-
-
-@router.get(
-    "/{case_id}/analysis-runs",
-    response_model=ListResponse[AnalysisRunOut],
-    dependencies=[Depends(require_case_capability("examination:read"))],
-)
-def list_analysis_runs(case: CaseDep, session: SessionDep) -> ListResponse[AnalysisRunOut]:
-    items = queries.list_analysis_runs(session, case)
-    return ListResponse(items=items, count=len(items))
 
 
 @router.get(

@@ -69,7 +69,7 @@ describe("application boot and routing", () => {
     mockApi();
     renderAt(<AppRoutes />, "/");
     expect(await screen.findByRole("heading", { level: 1, name: /automate work,\s*not accountability/i })).toBeInTheDocument();
-    expect(screen.getByText(/automated examination is not part of V2/i)).toBeInTheDocument();
+    expect(screen.getByText(/illustrative only; it does not depict an executed examination/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("User identity & access control")).toBeInTheDocument());
     expect(screen.getAllByText("Reserved").length).toBeGreaterThan(0);
   });

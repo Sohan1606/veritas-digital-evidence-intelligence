@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from app.domain.enums import (
     AnalysisRunState,
@@ -22,6 +22,7 @@ from app.domain.enums import (
     EvidenceState,
     EvidenceType,
     EvidenceValidationStatus,
+    ExaminationFailureCode,
     FindingReviewStatus,
     NodeType,
     ObjectiveState,
@@ -225,13 +226,29 @@ class EvidenceProfileOut(ApiModel):
 
 
 class AnalysisRunOut(ApiModel):
+    """One execution of a versioned Method against exactly one EvidenceObject.
+
+    ``started_at`` is the start of the current claim and ``completed_at`` the time the run
+    reached a terminal state (completed, failed or cancelled). ``failure_message`` is one of a
+    fixed set of sanitized sentences chosen by ``failure_code``.
+    """
+
     id: str
     evidence_id: str
+    evidence_object_id: str
     method_key: str
     method_version: str
     state: AnalysisRunState
+    parameters: dict[str, object]
     started_at: datetime | None
     completed_at: datetime | None
+    cancel_requested_at: datetime | None
+    last_heartbeat_at: datetime | None
+    failure_code: ExaminationFailureCode | None
+    failure_message: str | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class ObservationBasis(ApiModel):
@@ -242,6 +259,71 @@ class ObservationBasis(ApiModel):
     evidence_id: str
     evidence_label: str
     recorded_by: str
+
+
+class ObservationOut(ObservationBasis):
+    """An Observation. It states what was measured or noted; it is not a Finding or a Claim."""
+
+    created_at: datetime
+
+
+class AnalysisRunDetailOut(AnalysisRunOut):
+    observations: list[ObservationOut]
+
+
+class MethodOutputOut(ApiModel):
+    key: str
+    label: str
+    definition: str
+
+
+class ResourceLimitsOut(ApiModel):
+    max_object_bytes: int
+    chunk_bytes: int
+    max_runtime_seconds: int
+    max_observations: int
+    max_statement_chars: int
+
+
+class MethodOut(ApiModel):
+    """A registered executable Method. The backend registry is the only source of this data."""
+
+    key: str
+    version: str
+    name: str
+    purpose: str
+    supported_evidence_types: list[EvidenceType]
+    input_requirements: list[str]
+    parameters: dict[str, object]  # JSON Schema of the parameter contract
+    outputs: list[MethodOutputOut]
+    limitations: list[str]
+    resource_limits: ResourceLimitsOut
+    deterministic: bool
+    enabled: bool
+
+
+_IDEMPOTENCY_KEY = r"^[A-Za-z0-9._:-]{8,128}$"
+
+
+class AnalysisRunCreateIn(ApiModel):
+    """Request to examine one PRESERVED EvidenceObject. Never carries a path or a storage key."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    evidence_id: str = Field(pattern=r"^EVD-\d{3,9}$")
+    evidence_object_id: str = Field(pattern=r"^EOBJ-\d{3,9}$")
+    method_key: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$", max_length=64)
+    method_version: str = Field(pattern=r"^[0-9]+\.[0-9]+$", max_length=32)
+    parameters: dict[str, JsonValue] = Field(default_factory=dict)
+    idempotency_key: str = Field(pattern=_IDEMPOTENCY_KEY)
+
+
+class AnalysisRunRetryIn(ApiModel):
+    """Retry creates a NEW run; it needs its own idempotency key."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    idempotency_key: str = Field(pattern=_IDEMPOTENCY_KEY)
 
 
 class ClaimLink(ApiModel):

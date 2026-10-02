@@ -9,7 +9,7 @@ import type {
   ListResponse,
 } from "../../api/types";
 import { useResource } from "../../api/useResource";
-import { Button, Panel, RefId, StateView, Tag, Timestamp } from "../../design-system";
+import { Button, OBJECT_STATE_TONE, Panel, RefId, StateView, Tag, Timestamp } from "../../design-system";
 import { PreservedObjectAccess } from "./EvidenceObjectAccess";
 
 const EVIDENCE_TYPES: EvidenceType[] = ["image", "video", "audio", "document", "email", "message_export", "other"];
@@ -275,7 +275,7 @@ function EvidenceObjectCard({
     <Panel labelledBy={`object-${item.id}`} as="article">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><RefId id={item.id} /><Tag tone={item.state === "PRESERVED" ? "ok" : item.state === "REJECTED" ? "risk" : "warn"}>{item.state}</Tag></div>
+          <div className="flex flex-wrap items-center gap-2"><RefId id={item.id} /><Tag tone={OBJECT_STATE_TONE[item.state]}>{item.state}</Tag></div>
           <h3 id={`object-${item.id}`} className="mt-2 break-all font-mono text-xs text-fg">{item.original_filename}</h3>
           <p className="mt-1 text-xs text-fg-subtle">Declared media type: <span className="font-mono">{item.declared_media_type}</span> · {item.byte_size.toLocaleString()} bytes</p>
         </div>

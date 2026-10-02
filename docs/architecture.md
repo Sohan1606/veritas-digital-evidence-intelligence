@@ -1,6 +1,6 @@
-# VERITAS architecture (cumulative V1 + V2.2)
+# VERITAS architecture (cumulative V1 + V2.3)
 
-This document records the cumulative V1/V2/V2.1/V2.2 architecture. V2 extends the independently verified V1 foundation, V2.1 adds Evidence intake without replacing the V2 identity/access foundation, and V2.2 adds retrieval and integrity verification of preserved EvidenceObjects without a new storage, audit or authorization system. Each concept has exactly one owner, named below.
+This document records the cumulative V1/V2/V2.1/V2.2/V2.3 architecture. V2 extends the independently verified V1 foundation, V2.1 adds Evidence intake without replacing the V2 identity/access foundation, V2.2 adds retrieval and integrity verification of preserved EvidenceObjects without a new storage, audit or authorization system, and V2.3 activates examination (Method → Analysis Run → Observation) on the existing AnalysisRun, Observation, audit, storage and authorization concepts. Each concept has exactly one owner, named below.
 
 ## 1. System shape
 
@@ -18,7 +18,10 @@ browser ──► same origin ──► /            static frontend (Vite build
   streams raw bytes to a private backend storage abstraction and does not provide URL fetching,
   shell execution, semantic file parsing, forensic examination or external AI calls. V2.2 adds
   one read of those preserved bytes (`GET …/content`) and one observational recomputation
-  (`POST …/verify`, which writes a single AuditEvent).
+  (`POST …/verify`, which writes a single AuditEvent). V2.3 adds queued examination writes
+  (`POST …/analysis-runs`, `…/cancel`, `…/retry`): they write Analysis Runs, Observations and
+  AuditEvents only, execute in an in-process worker outside the request, and never touch an
+  Evidence, EvidenceObject, custody record or stored byte.
 
 ## 2. Canonical domain
 
@@ -164,7 +167,7 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
   (`drawScene` is a pure function of size, progress and a seeded scene). It redraws only
   when the quantized frame changes, caps device pixel ratio, uses a portrait layout on
   narrow screens and becomes a static six-panel storyboard under reduced motion. It is
-  labelled as a concept sequence: automated examination is not part of V2.
+  labelled as an illustrative concept sequence; it does not depict an executed examination.
 * **Finding actions**: Trace (recorded relationships), Explain (deterministic composition of
   recorded fields — no generated text), Why not (open vs excluded alternatives with basis).
   Challenge is visible but reserved; review/decision recording is outside V2.
@@ -206,7 +209,9 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
   isolates the local filesystem backend so a future object-storage adapter can be evaluated
   without adding another Evidence domain concept. Such an adapter, WORM guarantees and signed
   manifests are not part of this implementation.
-* Examination methods produce Analysis Runs whose Observations use origin `analysis_run`.
+* Further examination Methods are added to the code-owned registry as new `(key, version)` entries
+  (section 12); they publish Observations only. Any forensic interpretation, Findings from
+  Observations, or review is a separate design gate.
 * New asserted relationship types are added to `ASSERTED_RELATIONSHIPS` plus a migration.
 
 ## 10. V2.1 Evidence intake and storage
@@ -234,7 +239,7 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
   Administrator identity privileges are not evidence capabilities. There is no general
   evidence-byte download endpoint; V2.2 retrieval is per PRESERVED EvidenceObject (section 11).
 * Migration `0003_evidence_intake_integrity` adds the intake/custody schema and PostgreSQL
-  append-only protection (still the Alembic head in V2.2). SQLite upgrade/downgrade/re-upgrade and
+  append-only protection (the Alembic head in V2.2; V2.3 appends `0004`). SQLite upgrade/downgrade/re-upgrade and
   ORM immutability are tested; the PostgreSQL trigger tests run only against a PostgreSQL test
   database. Docker runtime and volume persistence are established only by running the stack, not
   by static Compose inspection (see `scripts/qa/v2_2_runtime_check.py`).
@@ -281,3 +286,46 @@ Owner: `backend/app/core/` (`config`, `security`, `middleware`, `errors`, `loggi
 * **Not claimed.** A `MATCH` is an integrity comparison with the intake record, not authenticity,
   forensic reliability or legal admissibility. See
   [the V2.2 implementation notes](evidence-retrieval-verification-v2.2.md).
+
+## 12. V2.3 Examination Core
+
+* **One owner per concept.** The Method contract is `examination/contracts.py`; the single
+  authoritative list of executable Methods is `examination/registry.py` (`METHOD_REGISTRY`, code
+  only — no table, flag or setting changes what a Method does); the first Method is
+  `examination/methods/binary_characteristics.py`; the only bounded evidence reader is
+  `examination/runner.EvidenceReader`; **every** Analysis Run state change in the database is made
+  by `examination/coordinator.py` through one compare-and-set primitive that first asks
+  `domain/lifecycle.py`; API commands (eligibility, idempotent creation, cancel, retry) are
+  `services/examination.py`; routes are `api/examination.py`. `AnalysisRun` is the execution
+  record (there is no `Examination` entity), Observations are written by the existing
+  `records.record_observation`, events by `records.record_audit_event`, errors use the existing
+  envelope, and the role map stays in `domain/roles.py`.
+* **Exact provenance.** `analysis_runs.evidence_object_id` is NOT NULL and part of a composite
+  foreign key `(evidence_object_id, evidence_id, case_id)` to `evidence_objects`, so the database
+  refuses a run whose object is not in that Evidence and Case. Migration `0004` is append-only and
+  refuses to upgrade over pre-V2.3 rows rather than guess a provenance. Observations point at their
+  run; the run points at its object.
+* **Durable execution without new infrastructure.** The `analysis_runs` table is the queue. A run
+  is `QUEUED` by the request and executed by an in-process worker thread started in the
+  application lifespan. A claim is a compare-and-set (`FOR UPDATE SKIP LOCKED` on PostgreSQL);
+  each claim stamps `started_at`, which every later write of that worker repeats (fencing), so a
+  stalled worker that lost its run cannot publish. Heartbeats carry cancellation requests; stale
+  runs are requeued; shutdown releases the run in flight. Completion, Observations and audit are one
+  transaction.
+* **Authorization before storage.** Routes use `require_case_capability("examination:execute",
+  authenticated_only=True, non_demonstration_only=True)`; the service re-checks demonstration
+  Cases; the object is opened (never read) only after every database-level rule passes.
+* **Bounded, private, fail-closed.** The Method receives chunks, not a path; the reader enforces
+  64 KiB reads, the byte and time limits, checks cooperative cancellation and compares the bytes
+  read with the recorded byte count and digests (`evidence_hashing.matches_recorded_integrity`,
+  shared with V2.2) so Observations exist only for bytes that still equal the PRESERVED object.
+  Nothing is written to storage and no copy is made.
+* **Capability registry.** `examination` is `available` in `/api/v1/system`; the frontend reads
+  that statement and the session's Case capabilities; Timeline, Review and Report stay reserved.
+* **Frontend.** `features/examination/` (Methods, EvidenceObject picker, runs and run detail) reuses
+  the shell, navigation, `StateView`, `DataTable` and `semantics.ts` (`RUN_STATE`,
+  `OBJECT_STATE_TONE` — the one object-state mapping, now also used by the Evidence card).
+  `api/useResource.ts` gained in-place polling (`refreshMs`, `refreshWhile`, `refresh`,
+  `refreshError`): the same single GET owner, not a second fetch mechanism.
+* **Not claimed.** An Observation is a measurement. No authenticity, origin, manipulation, malware
+  or admissibility statement is made. See [the V2.3 notes](examination-core-v2.3.md).

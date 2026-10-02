@@ -76,9 +76,12 @@ CAPABILITIES: tuple[CapabilityOut, ...] = (
     ),
     CapabilityOut(
         key="examination",
-        label="Automated examination",
-        status="reserved",
-        note="No examination methods are executable in V1; no Analysis Runs are produced.",
+        label="Examination",
+        status="available",
+        note="Versioned, deterministic Methods run against PRESERVED EvidenceObject bytes as "
+        "durable Analysis Runs that publish Observations only. The first Method reports "
+        "byte-level characteristics. Examination creates no Findings, Claims or Assessments "
+        "and makes no authenticity determination.",
     ),
     CapabilityOut(
         key="timeline",

@@ -7,12 +7,13 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import anyio
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
-from app.api import admin, auth, cases, evidence, system
+from app.api import admin, auth, cases, evidence, examination, system
 from app.core.authentication import ProvisionedPasswordAuthenticator
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
@@ -24,6 +25,9 @@ from app.core.middleware import (
 )
 from app.db.migrations import expected_head
 from app.db.session import build_engine, build_session_factory
+from app.examination.coordinator import RunCoordinator
+from app.examination.registry import METHOD_REGISTRY
+from app.examination.supervisor import ExaminationSupervisor
 from app.services.evidence_storage import LocalEvidenceStorage
 
 logger = logging.getLogger("veritas.app")
@@ -35,7 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = build_engine(settings)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         logger.info(
             "VERITAS API starting",
             extra={
@@ -44,7 +48,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "access_mode": settings.access_mode,
             },
         )
+        supervisor: ExaminationSupervisor = application.state.examination_supervisor
+        if settings.examination_worker_enabled:
+            supervisor.start()
         yield
+        # Stop claiming; a run in flight is released to the queue and resumes after restart.
+        await anyio.to_thread.run_sync(supervisor.stop)
         engine.dispose()
 
     docs = settings.api_docs_enabled
@@ -65,6 +74,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.expected_revision = expected_head()
     app.state.started_monotonic = time.monotonic()
     app.state.evidence_storage = LocalEvidenceStorage(settings.evidence_storage_root)
+    # The Method registry is the one authoritative list of executable Methods. The worker looks
+    # the registry and the storage up on ``app.state`` at run time, so there is one wiring.
+    app.state.method_registry = METHOD_REGISTRY
+    coordinator = RunCoordinator(
+        session_factory=app.state.session_factory,
+        storage=lambda: app.state.evidence_storage,
+        registry=lambda: app.state.method_registry,
+        heartbeat_seconds=settings.examination_heartbeat_seconds,
+        stale_seconds=settings.examination_stale_seconds,
+    )
+    app.state.examination_coordinator = coordinator
+    app.state.examination_supervisor = ExaminationSupervisor(
+        coordinator, poll_seconds=settings.examination_poll_seconds
+    )
 
     register_error_handlers(app)
     app.include_router(system.router)
@@ -72,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin.router)
     app.include_router(cases.router)
     app.include_router(evidence.router)
+    app.include_router(examination.router)
 
     # Middleware: last added runs first (outermost).
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes)
