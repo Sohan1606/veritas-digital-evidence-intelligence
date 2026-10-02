@@ -68,3 +68,14 @@ def digest_file(stream: BinaryIO) -> DigestSummary:
             yield chunk
 
     return digest_chunks(chunks())
+
+
+def matches_recorded_integrity(
+    computed: DigestSummary, *, byte_size: int, sha256: str, sha512: str
+) -> bool:
+    """The one comparison of recomputed bytes with the immutable intake values.
+
+    Shared by independent verification (V2.2) and the examination reader (V2.3) so that
+    "these are the recorded bytes" has exactly one definition.
+    """
+    return (computed.byte_size, computed.sha256, computed.sha512) == (byte_size, sha256, sha512)

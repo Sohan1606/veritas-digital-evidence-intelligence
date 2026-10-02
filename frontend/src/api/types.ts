@@ -162,14 +162,33 @@ export type EvidenceProfile = Record<ProfileSectionKey, ProfileSection> & {
   status_definitions: Record<ProfileStatus, string>;
 };
 
+/** Why a run FAILED. The accompanying failure_message is one fixed, sanitized sentence per code. */
+export type ExaminationFailureCode =
+  | "method_unavailable"
+  | "not_eligible"
+  | "evidence_unavailable"
+  | "integrity_mismatch"
+  | "resource_limit_exceeded"
+  | "execution_failed";
+
+/** Mirrors backend AnalysisRunOut: one execution of a versioned Method against one EvidenceObject. */
 export interface AnalysisRun {
   id: string;
   evidence_id: string;
+  evidence_object_id: string;
   method_key: string;
   method_version: string;
   state: AnalysisRunState;
+  parameters: Record<string, unknown>;
   started_at: string | null;
   completed_at: string | null;
+  cancel_requested_at: string | null;
+  last_heartbeat_at: string | null;
+  failure_code: ExaminationFailureCode | null;
+  failure_message: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ObservationBasis {
@@ -180,6 +199,46 @@ export interface ObservationBasis {
   evidence_id: string;
   evidence_label: string;
   recorded_by: string;
+}
+
+/** An Observation states what was measured or noted. It is not a Finding, Claim or Assessment. */
+export interface Observation extends ObservationBasis {
+  created_at: string;
+}
+
+export interface AnalysisRunDetail extends AnalysisRun {
+  observations: Observation[];
+}
+
+export interface MethodOutput {
+  key: string;
+  label: string;
+  definition: string;
+}
+
+export interface MethodResourceLimits {
+  max_object_bytes: number;
+  chunk_bytes: number;
+  max_runtime_seconds: number;
+  max_observations: number;
+  max_statement_chars: number;
+}
+
+/** Mirrors backend MethodOut. The backend registry is the only source of Method definitions. */
+export interface ExaminationMethod {
+  key: string;
+  version: string;
+  name: string;
+  purpose: string;
+  supported_evidence_types: EvidenceType[];
+  input_requirements: string[];
+  /** JSON Schema of the parameter contract. */
+  parameters: { properties?: Record<string, unknown>; required?: string[] } & Record<string, unknown>;
+  outputs: MethodOutput[];
+  limitations: string[];
+  resource_limits: MethodResourceLimits;
+  deterministic: boolean;
+  enabled: boolean;
 }
 
 export interface AlternativeExplanation {

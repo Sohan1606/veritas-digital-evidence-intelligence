@@ -211,8 +211,10 @@ def record_observation(
 ) -> Observation:
     if evidence.case_id != case.id:
         raise DomainRuleViolation("evidence does not belong to this case")
-    if analysis_run is not None and analysis_run.evidence_id != evidence.id:
-        raise DomainRuleViolation("analysis run did not examine this evidence")
+    if analysis_run is not None and (
+        analysis_run.case_id != case.id or analysis_run.evidence_id != evidence.id
+    ):
+        raise DomainRuleViolation("analysis run did not examine this evidence in this case")
     observation = Observation(
         case_id=case.id,
         evidence_id=evidence.id,

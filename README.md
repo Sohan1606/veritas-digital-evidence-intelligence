@@ -5,12 +5,15 @@ finding to its basis and keep conclusions open to human review. Its principle:
 **automate work, not accountability.** Evidence is treated as untrusted data, never as
 instructions, and the system is not a source of forensic truth.
 
-> **Status: cumulative V2.2 foundation.** V2 adds provisioned identity, server-side sessions,
-> explicit capabilities and Case-scoped backend authorization to the independently verified V1
-> foundation. V2.1 adds private Evidence intake mechanics. V2.2 adds authorized retrieval and
-> independent integrity verification of preserved EvidenceObjects.
-> **INTEGRITY MATCH IS NOT AUTHENTICITY PROOF.** Seeded demonstration records remain
-> synthetic metadata only—not real evidence; no forensic conclusion is produced.
+> **Status: cumulative V2.3 Examination Core.** V2 adds provisioned identity, server-side
+> sessions, explicit capabilities and Case-scoped backend authorization to the independently
+> verified V1 foundation. V2.1 adds private Evidence intake mechanics. V2.2 adds authorized
+> retrieval and independent integrity verification of preserved EvidenceObjects. V2.3 adds the
+> first executable examination: a versioned, deterministic Method runs against the preserved
+> bytes of one EvidenceObject as a durable Analysis Run and publishes Observations only.
+> **INTEGRITY MATCH IS NOT AUTHENTICITY PROOF**, and an Observation is a measurement, not a
+> conclusion. Seeded demonstration records remain synthetic metadata only—not real evidence;
+> no forensic conclusion is produced.
 
 ## Scope
 
@@ -19,7 +22,7 @@ Observation, Finding, Claim, Assessment, Case Knowledge Graph, and append-only A
 the read-only case API and investigator shell; the synthetic demo dataset; the structured error
 contract; and the PostgreSQL/SQLAlchemy/Alembic architecture.
 
-**Implemented cumulatively through V2.2:**
+**Implemented cumulatively through V2.3:**
 
 - Provisioned Users (no public signup), Organizations and memberships, a canonical six-role
   catalog, case-scoped role assignments, and immutable public identifiers (`USR-001`,
@@ -57,12 +60,27 @@ contract; and the PostgreSQL/SQLAlchemy/Alembic architecture.
   record one canonical `AuditEvent` per operation; verification never modifies an EvidenceObject,
   its custody history or its stored bytes. No migration, table or capability is added. See
   [docs/evidence-retrieval-verification-v2.2.md](docs/evidence-retrieval-verification-v2.2.md).
+- V2.3 adds the first executable examination (see
+  [docs/examination-core-v2.3.md](docs/examination-core-v2.3.md)). One code-owned Method
+  registry holds one Method, `core.binary_characteristics@1.0`, which reads the PRESERVED bytes of
+  one EvidenceObject once, in bounded chunks, and publishes five deterministic Observations (byte
+  count, Shannon byte entropy, printable-ASCII ratio, NUL-byte ratio, distinct byte values).
+  `AnalysisRun` is the only execution record and now names the **exact** EvidenceObject (a
+  database-enforced composite key). Runs are idempotent (a database constraint), durable (the
+  table is the queue; an in-process worker claims runs with compare-and-set, heartbeats, fences a
+  stale worker, recovers abandoned runs and publishes Observations atomically), cancellable and
+  retryable (a retry is a new run). A new `examination:execute` capability belongs to
+  INVESTIGATOR and RESEARCHER only. Observations are the only output: no Finding, Claim or
+  Assessment is ever created automatically, no AI or external service is involved, and evidence
+  is never modified. Migration `0004` is append-only.
 
-**Not implemented:** forensic examination or authenticity conclusions, semantic file/container
-parsing, OCR/NLP/CV, deepfake or media analysis, automated analysis, agent orchestration, external
-AI APIs, review/decision recording, reports, Case Packages, WORM storage, signed evidence
-manifests, public verification/upload, public signup, OIDC provider configuration, or MFA. The
-backend capability list is the runtime source of what is available or reserved.
+**Not implemented:** authenticity or other forensic conclusions, semantic file/container
+parsing, OCR/NLP/CV, deepfake or media analysis, any AI/LLM or external AI API, agent
+orchestration, automated Findings, Claims or Assessments, timeline reconstruction,
+review/decision recording, reports, Case Packages, WORM storage, signed evidence manifests,
+public verification/upload, public signup, OIDC provider configuration, or MFA. The only
+examination Method is the byte-level one above. The backend capability list is the runtime
+source of what is available or reserved.
 
 ## Architecture
 
@@ -92,10 +110,10 @@ case-wide grant is bounded by its Organization membership.
 
 | Role | Capabilities | Scope / console assignment |
 | --- | --- | --- |
-| `INVESTIGATOR` | `case:read`, `evidence:read`, `evidence:intake`, `custody:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `examination:read` | Assigned per Case; may intake but not finalize |
+| `INVESTIGATOR` | `case:read`, `evidence:read`, `evidence:intake`, `custody:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `examination:read`, `examination:execute` | Assigned per Case; may intake and examine but not finalize |
 | `REVIEWER` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `review:read`, `examination:read` | Assigned per Case; no intake or custody-write |
 | `CUSTODIAN` | `case:read`, `evidence:read`, `evidence:intake`, `case_audit:read`, `custody:read`, `custody:write` | Assigned per Case; may finalize supported intake |
-| `RESEARCHER` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `examination:read` | Assigned per Case |
+| `RESEARCHER` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `examination:read`, `examination:execute` | Assigned per Case; may examine, not intake |
 | `ADMINISTRATOR` | `identity:read`, `users:read`, `users:manage`, `roles:assign`, `security_audit:read` | Organization identity administration; no implicit evidence access; out-of-band assignment |
 | `AUDITOR` | `case:read`, `evidence:read`, `findings:read`, `claims:read`, `graph:read`, `case_audit:read`, `security_audit:read`, `case:read:any`, `examination:read` | Organization-scoped Case-wide read; no custody access; out-of-band assignment |
 
@@ -103,18 +121,20 @@ case-wide grant is bounded by its Organization membership.
 
 ```
 backend/            FastAPI service
-  app/api/          system, cases, auth, identity administration, Evidence intake
+  app/api/          system, cases, auth, identity administration, Evidence intake, examination
   app/core/         settings, authentication adapter, session security, middleware, errors, logs
   app/db/           SQLAlchemy engine/session, types, migration status
-  app/domain/       canonical entities, explicit role capabilities, relationship rules
-  app/services/     projections, canonical Audit writes, intake, hashing, signatures, storage
+  app/domain/       canonical entities, explicit role capabilities, relationship and run-lifecycle rules
+  app/examination/  Method contract and registry, the Method, evidence reader, run coordinator, worker
+  app/services/     projections, canonical Audit writes, intake, retrieval, examination commands, hashing, storage
   app/provision.py  interactive out-of-band account/privileged-role provisioning
   app/seed.py       synthetic demonstration dataset (development only)
-  migrations/       append-only Alembic migration chain (head `0003`)
-  tests/            V1/V2 regressions, intake integrity, auth, authorization, audit and architecture
-frontend/           React/TypeScript shell, Evidence intake/integrity/custody, identity/admin and V1 workspaces
+  migrations/       append-only Alembic migration chain (head `0004`)
+  tests/            V1/V2 regressions, intake and retrieval, examination (methods, lifecycle, worker, recovery,
+                    authorization, security, migration), auth, audit and architecture
+frontend/           React/TypeScript shell, Evidence intake/integrity/custody, Examination workstation, identity/admin and V1 workspaces
 docker/             Dockerfiles, same-origin nginx proxy and backend-only evidence volume
-docs/               architecture, threat model, V2.1 intake and V2.2 retrieval/verification notes
+docs/               architecture, threat model, V2.1 intake, V2.2 retrieval/verification and V2.3 examination notes
 scripts/            setup, local dev and deterministic verification
 ```
 
@@ -171,6 +191,14 @@ Existing V1 case routes stay GET-only and retain their response contracts. V2 ad
   same path as the V2.1 upload, different method) and
   `POST /api/v1/cases/{case_id}/evidence/{evidence_id}/objects/{object_id}/verify`
   (`MATCH`/`MISMATCH`/`UNAVAILABLE`, CSRF-protected). There is no generic or path-based download.
+- V2.3 examination (`examination:read` to read; `examination:execute`, authenticated,
+  non-demonstration Cases only, CSRF-protected, to change anything):
+  `GET /api/v1/cases/{case_id}/examination/methods`,
+  `GET /api/v1/cases/{case_id}/analysis-runs` (existing route; each run now names its exact
+  EvidenceObject), `POST /api/v1/cases/{case_id}/analysis-runs` (queues one run; an
+  `idempotency_key` makes it safe to repeat), `GET /api/v1/cases/{case_id}/analysis-runs/{run_id}`
+  (the run and its Observations), `POST …/analysis-runs/{run_id}/cancel` and
+  `POST …/analysis-runs/{run_id}/retry` (creates a new run). No route accepts a path or storage key.
 
 Login/session JSON contains identity, role/capability and expiry metadata only. The opaque session
 credential is set as an HttpOnly cookie; it is not returned in JSON or stored raw. CSRF material
@@ -202,7 +230,10 @@ Useful settings: `VERITAS_SESSION_TTL_MINUTES` (5–1440, default 720),
 `VERITAS_LOGIN_FAILURE_LIMIT` (default 5), `VERITAS_LOGIN_LOCKOUT_MINUTES` (default 15),
 `VERITAS_ALLOWED_HOSTS`, `VERITAS_CORS_ORIGINS`, `VERITAS_MAX_REQUEST_BYTES`,
 `VERITAS_EVIDENCE_STORAGE_ROOT` (default `./data/evidence`) and
-`VERITAS_MAX_EVIDENCE_BYTES` (default 100 MiB; enforced against streamed bytes). Docker nginx
+`VERITAS_MAX_EVIDENCE_BYTES` (default 100 MiB; enforced against streamed bytes). Examination
+execution is tuned by `VERITAS_EXAMINATION_WORKER_ENABLED` (default true),
+`VERITAS_EXAMINATION_POLL_SECONDS` (1.0), `VERITAS_EXAMINATION_HEARTBEAT_SECONDS` (2.0) and
+`VERITAS_EXAMINATION_STALE_SECONDS` (30.0; at least three times the heartbeat). Docker nginx
 also caps uploads at 100 MiB by default; review both ceilings when changing the application limit.
 
 ## Docker
@@ -251,6 +282,21 @@ properties, expiry/logout/replay, IP lockout, CSRF, allowed/denied/cross-case an
 Case access, role boundaries, direct admin endpoint calls, privilege escalation attempts,
 secret/error leakage, security Audit creation and V1 API/demo regression.
 
+V2.3 adds backend tests for the Method (golden outputs, an independent floating-point oracle,
+exact half-even rounding, chunk-boundary and decimal-context independence, a pinned contract
+digest), the controlled reader and integrity gate, the lifecycle (transition table, ORM guard,
+CHECK constraints, composite provenance key, and PostgreSQL trigger tests), the API (queueing,
+exact multi-object provenance, every eligibility failure, server-side idempotency under real
+concurrency, cancel, retry), the authorization matrix (every role, anonymous, demonstration,
+disabled/expired/revoked sessions, CSRF, wrong Case/Organization, and proof that unauthorized and
+ineligible requests never open storage), worker behavior (concurrent claims, atomic publication,
+every storage-fault shape, cancellation races, fencing, stale recovery, graceful release, restart,
+the real background worker), security (audit and response leak scans, no writes or copies under
+the evidence root, no process or network use, bounded memory for a 24 MiB object, an audit of
+user-facing copy) and migration `0004` (up/down/up, refusal on legacy rows, PostgreSQL, the CI
+sequence). `scripts/qa/v2_3_runtime_check.py` and `scripts/qa/v2_3_browser_check.py` repeat the
+end-to-end proof over HTTP through nginx in a disposable Docker Compose project (`veritas-v23-*`).
+
 Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed separately).
 
 ## Security and limitations
@@ -261,7 +307,9 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
   organization membership, capabilities and Case scope are independently checked. `AUDITOR`
   case-wide access is limited to the Administrator-provisioned Auditor role and its organization.
 - Existing case-domain projections remain read-only except for the explicit V2.1 Evidence intake
-  endpoints and the V2.2 verification endpoint (which writes one AuditEvent and nothing else).
+  endpoints, the V2.2 verification endpoint (which writes one AuditEvent and nothing else) and the
+  V2.3 examination endpoints (which write Analysis Runs, Observations and AuditEvents, and
+  never an Evidence, EvidenceObject, custody or stored-byte record).
   Intake streams untrusted bytes to private backend storage and performs only bounded,
   deterministic leading-byte checks and hashing; there is no URL fetch, shell execution, external
   AI call, semantic parsing or forensic examination.
@@ -285,9 +333,15 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
 - New accounts and privileged Administrator/Auditor roles are provisioned only through the
   operator CLI. The console handles authorized status changes and ordinary case-role assignments;
   there is no self-service signup, password reset, or recovery workflow.
-- No review/decision write workflow, forensic examination, reports, or Case Packages are part
-  of V2.2. Seeded synthetic V1 evidence remains metadata only; authorized V2.1 intake can place
-  separately captured bytes in private backend storage, and V2.2 can return and re-hash them.
+- V2.3 examination is one deterministic byte-level Method. It does not determine authenticity,
+  origin, manipulation, malware status, truthfulness or legal admissibility, and publishes
+  Observations only. The worker is one in-process thread per backend process (pure Python, about
+  29 MiB/s measured), there is no per-user queue quota or rate limit, and a run that crashes its
+  worker every time would be retried each time. Examination fails closed if the stored bytes no
+  longer equal the values recorded at intake, but it is not a replacement for verification.
+- No review/decision write workflow, reports, or Case Packages are part of V2.3. Seeded
+  synthetic V1 evidence remains metadata only; authorized V2.1 intake can place separately
+  captured bytes in private backend storage, and V2.2 can return and re-hash them.
   Hashes, signature checks and an integrity `MATCH` are not an authenticity verdict, forensic
   certification, or legal-admissibility claim. Integrity verification detects a difference from
   the recorded values; it cannot say why, and says nothing about the bytes before intake. A party
@@ -306,9 +360,9 @@ Optional browser QA: `scripts/qa/browser_smoke.py` (Playwright must be installed
 ## Roadmap and explicit boundaries
 
 Potential later work requires separate design/review gates: OIDC and MFA provider integration;
-organization lifecycle and multi-organization administration; forensic examination; review/decision
+organization lifecycle and multi-organization administration; further examination Methods and any forensic interpretation; review/decision
 write workflows; case reporting and export; independent external security review; and hardened
-distributed rate limiting and tamper-evident audit export. These are not present in V2.2. Public
+distributed rate limiting and tamper-evident audit export. These are not present in V2.3. Public
 signup and public evidence verification remain out of scope.
 
 ## Demonstration data policy

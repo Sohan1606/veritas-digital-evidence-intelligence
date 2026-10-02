@@ -53,7 +53,9 @@ def test_system_info_reports_measured_state_only(client: TestClient, database_ur
     assert body["uptime_seconds"] >= 0
     keys = {c["key"]: c["status"] for c in body["capabilities"]}
     assert keys["identity"] == "available"
-    assert keys["examination"] == "reserved"
+    assert keys["examination"] == "available"  # V2.3: executable, deterministic Methods
+    # Capabilities that still do not exist remain explicitly reserved.
+    assert {keys["timeline"], keys["review"], keys["report"]} == {"reserved"}
     assert keys["evidence_intake"] == "available"
     assert keys["evidence_retrieval_verification"] == "available"
     # The database URL (and anything in it) must never be exposed.

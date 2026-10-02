@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     login_failure_limit: int = Field(default=5, ge=3, le=20)
     login_lockout_minutes: int = Field(default=15, ge=1, le=120)
 
+    # V2.3 examination execution (database-backed, in-process worker; no external queue).
+    # A RUNNING run whose heartbeat is older than ``examination_stale_seconds`` is treated as
+    # abandoned by its worker and is returned to the queue (or cancelled, if cancellation was
+    # requested). The threshold must comfortably exceed the heartbeat interval.
+    examination_worker_enabled: bool = True
+    examination_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
+    examination_heartbeat_seconds: float = Field(default=2.0, ge=0.0, le=60.0)
+    examination_stale_seconds: float = Field(default=30.0, ge=1.0, le=3_600.0)
+
     @field_validator("allowed_hosts", "cors_origins", "trusted_proxy_ips", mode="before")
     @classmethod
     def _parse_csv(cls, value: object) -> object:
@@ -82,6 +91,15 @@ class Settings(BaseSettings):
         except ValueError as exc:
             raise ValueError("VERITAS_TRUSTED_PROXY_IPS must contain IPs or CIDRs") from exc
         return values
+
+    @model_validator(mode="after")
+    def _enforce_heartbeat_margin(self) -> Settings:
+        if self.examination_stale_seconds < 3 * self.examination_heartbeat_seconds:
+            raise ValueError(
+                "VERITAS_EXAMINATION_STALE_SECONDS must be at least three times "
+                "VERITAS_EXAMINATION_HEARTBEAT_SECONDS"
+            )
+        return self
 
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> Settings:

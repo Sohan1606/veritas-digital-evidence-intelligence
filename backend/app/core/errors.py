@@ -82,6 +82,42 @@ class EvidenceStorageUnavailableError(VeritasError):
     code = "evidence_storage_unavailable"
 
 
+class ExaminationConflictError(VeritasError):
+    """The request is valid but the examination cannot be created or changed as asked."""
+
+    status_code = 409
+    code = "examination_conflict"
+
+
+class MethodUnavailableError(ExaminationConflictError):
+    code = "method_unavailable"
+
+
+class MethodInapplicableError(ExaminationConflictError):
+    code = "method_inapplicable"
+
+
+class EvidenceObjectNotPreservedError(ExaminationConflictError):
+    code = "evidence_object_not_preserved"
+
+
+class DemonstrationExaminationError(ExaminationConflictError):
+    code = "examination_not_permitted_for_demonstration"
+
+
+class IdempotencyConflictError(ExaminationConflictError):
+    code = "idempotency_conflict"
+
+
+class InvalidLifecycleTransitionError(ExaminationConflictError):
+    code = "invalid_lifecycle_transition"
+
+
+class InvalidMethodParametersError(VeritasError):
+    status_code = 422
+    code = "invalid_method_parameters"
+
+
 def error_body(
     code: str, message: str, details: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:

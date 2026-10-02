@@ -23,7 +23,7 @@ export function FindingsPage() {
       {list.status === "error" && <ApiErrorView error={list.error} subject="Findings" onRetry={list.reload} />}
       {list.status === "ready" && list.data.count === 0 && (
         <StateView state="empty" title={`No findings recorded in ${c.id}.`}>
-          Findings are recorded from observations. No automated examination exists in V1 to produce them.
+          Findings are recorded by people from Observations. An examination publishes Observations only and never creates a Finding.
         </StateView>
       )}
       {list.status === "ready" && list.data.count > 0 && (

@@ -16,6 +16,8 @@ from sqlalchemy import (
     CheckConstraint,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
@@ -47,6 +49,7 @@ from app.domain.enums import (
     ObservationState,
     RelationshipType,
 )
+from app.domain.lifecycle import TERMINAL_RUN_STATES, InvalidRunTransitionError, require_transition
 
 
 def state_column[E: StrEnum](enum_cls: type[E]) -> Any:
@@ -232,6 +235,9 @@ class EvidenceObject(PublicIdMixin, TimestampedMixin, Base):
             name="rejected_validation_consistency",
         ),
         UniqueConstraint("storage_key", name="uq_evidence_objects_storage_key"),
+        # Referenced by the composite key that gives every Analysis Run exact, database-enforced
+        # provenance (see AnalysisRun). It adds no rule to the object itself.
+        Index("uq_evidence_objects_provenance", "id", "evidence_id", "case_id", unique=True),
     )
 
     case_id: Mapped[uuid.UUID] = case_fk()
@@ -328,23 +334,77 @@ class EvidenceProfile(TimestampedMixin, Base):
 
 
 class AnalysisRun(PublicIdMixin, TimestampedMixin, Base):
-    """One execution of a Method against Evidence. No methods are executable in V1."""
+    """One execution of a versioned Method against exactly one PRESERVED EvidenceObject.
+
+    This is the canonical execution record (there is no separate "examination" entity). The
+    request columns (case, evidence, evidence object, method, parameters, idempotency key,
+    fingerprint) never change after creation; only the lifecycle columns do, and only along
+    ``domain.lifecycle``. A finished run is final; a retry is a new run.
+
+    ``started_at`` is set by each claim and cleared when a run is returned to the queue, so it
+    also identifies the claim that currently owns a RUNNING run (a stale worker cannot publish).
+    ``completed_at`` is the time the run reached any terminal state.
+    """
 
     __tablename__ = "analysis_runs"
     __public_id_prefix__ = "ANL"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="run_state",
+        ),
+        CheckConstraint(
+            "(state = 'queued' AND started_at IS NULL AND completed_at IS NULL"
+            " AND last_heartbeat_at IS NULL AND cancel_requested_at IS NULL)"
+            " OR (state = 'running' AND started_at IS NOT NULL AND completed_at IS NULL"
+            " AND last_heartbeat_at IS NOT NULL)"
+            " OR (state = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL"
+            " AND cancel_requested_at IS NULL)"
+            " OR (state = 'failed' AND started_at IS NOT NULL AND completed_at IS NOT NULL)"
+            " OR (state = 'cancelled' AND completed_at IS NOT NULL)",
+            name="lifecycle_consistency",
+        ),
+        CheckConstraint(
+            "(state = 'failed' AND failure_code IS NOT NULL AND failure_message IS NOT NULL)"
+            " OR (state != 'failed' AND failure_code IS NULL AND failure_message IS NULL)",
+            name="failure_consistency",
+        ),
+        CheckConstraint("length(request_fingerprint) = 64", name="fingerprint_length"),
+        # A repeated HTTP request (same principal, Case and key) can never create a second run.
+        # NULL keys (internal, non-HTTP creation) never collide with each other.
+        UniqueConstraint(
+            "case_id", "created_by", "idempotency_key", name="uq_analysis_runs_idempotency"
+        ),
+        # Exact provenance, enforced by the database: the object must belong to this Evidence
+        # and this Case. The service checks the same relationships before it ever inserts.
+        ForeignKeyConstraint(
+            ["evidence_object_id", "evidence_id", "case_id"],
+            ["evidence_objects.id", "evidence_objects.evidence_id", "evidence_objects.case_id"],
+            name="fk_analysis_runs_evidence_object_id_evidence_objects",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_analysis_runs_state_created_at", "state", "created_at"),
+    )
 
     case_id: Mapped[uuid.UUID] = case_fk()
     evidence_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("evidence.id", ondelete="RESTRICT"), index=True
     )
+    evidence_object_id: Mapped[uuid.UUID] = mapped_column(index=True)
     method_key: Mapped[str] = mapped_column(String(64))
     method_version: Mapped[str] = mapped_column(String(32))
     state: Mapped[AnalysisRunState] = mapped_column(
         state_column(AnalysisRunState), default=AnalysisRunState.QUEUED
     )
     parameters: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
     started_at: Mapped[datetime | None]
     completed_at: Mapped[datetime | None]
+    cancel_requested_at: Mapped[datetime | None]
+    last_heartbeat_at: Mapped[datetime | None]
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    failure_message: Mapped[str | None] = mapped_column(String(500))
 
 
 class Observation(PublicIdMixin, TimestampedMixin, Base):
@@ -479,6 +539,10 @@ class AuditEventImmutableError(RuntimeError):
     pass
 
 
+class AnalysisRunImmutableError(RuntimeError):
+    """Raised when execution history is rewritten, deleted, or its lifecycle is violated."""
+
+
 _EVIDENCE_QUARANTINE_MUTABLE = frozenset(
     {
         "byte_size",
@@ -528,6 +592,51 @@ def _protect_evidence_object(_m: Mapper[Any], _c: Connection, target: EvidenceOb
 @event.listens_for(EvidenceObject, "before_delete")
 def _forbid_evidence_object_delete(_m: Mapper[Any], _c: Connection, _t: EvidenceObject) -> None:
     raise EvidenceObjectImmutableError("evidence objects cannot be deleted")
+
+
+# What a run IS (and was asked to do) never changes; only its lifecycle columns do.
+_ANALYSIS_RUN_IMMUTABLE = frozenset(
+    {
+        "id",
+        "public_id",
+        "case_id",
+        "evidence_id",
+        "evidence_object_id",
+        "method_key",
+        "method_version",
+        "parameters",
+        "idempotency_key",
+        "request_fingerprint",
+        "created_at",
+        "created_by",
+    }
+)
+
+
+@event.listens_for(AnalysisRun, "before_update")
+def _guard_analysis_run(_m: Mapper[Any], _c: Connection, target: AnalysisRun) -> None:
+    """ORM-level guard. The coordinator's compare-and-set updates are Core statements, so the
+    same rules are enforced there (``domain.lifecycle``) and, on PostgreSQL, by a trigger."""
+    state = sa_inspect(target)
+    changed = {attribute.key for attribute in state.attrs if attribute.history.has_changes()}
+    if not changed:
+        return
+    if changed & _ANALYSIS_RUN_IMMUTABLE:
+        raise AnalysisRunImmutableError("analysis run identity and execution request are immutable")
+    previous = state.attrs.state.history.deleted
+    old_state = previous[0] if previous else target.state
+    if old_state in TERMINAL_RUN_STATES:
+        raise AnalysisRunImmutableError("finished analysis runs are immutable")
+    try:
+        if target.state is not old_state:
+            require_transition(old_state, target.state)
+    except InvalidRunTransitionError as exc:
+        raise AnalysisRunImmutableError(str(exc)) from None
+
+
+@event.listens_for(AnalysisRun, "before_delete")
+def _forbid_analysis_run_delete(_m: Mapper[Any], _c: Connection, _t: AnalysisRun) -> None:
+    raise AnalysisRunImmutableError("analysis runs are execution history and cannot be deleted")
 
 
 @event.listens_for(EvidenceCustodyEvent, "before_update")

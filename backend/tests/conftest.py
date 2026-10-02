@@ -45,6 +45,9 @@ def make_settings(database_url: str, **overrides: object) -> Settings:
         "allowed_hosts": ["testserver", "localhost"],
         "cors_origins": ["http://localhost:5173"],
         "log_level": "WARNING",
+        # Tests drive the coordinator explicitly; a test that needs the real background
+        # worker opts in with ``examination_worker_enabled=True``.
+        "examination_worker_enabled": False,
     }
     values.update(overrides)
     return Settings.model_validate(values)

@@ -30,7 +30,12 @@ from app.domain.enums import EvidenceAuditAction, EvidenceIntegrityResult, Evide
 from app.domain.models import Case
 from app.schemas import EvidenceIntegrityVerificationOut
 from app.services import queries
-from app.services.evidence_hashing import HASH_CHUNK_BYTES, DigestSummary, digest_file
+from app.services.evidence_hashing import (
+    HASH_CHUNK_BYTES,
+    DigestSummary,
+    digest_file,
+    matches_recorded_integrity,
+)
 from app.services.evidence_signatures import SUPPORTED_MEDIA_TYPES
 from app.services.evidence_storage import EvidenceStorage, EvidenceStorageFailure
 from app.services.records import record_audit_event
@@ -346,10 +351,8 @@ def verify_preserved_object(
 
     if computed is None:
         result = EvidenceIntegrityResult.UNAVAILABLE
-    elif (computed.byte_size, computed.sha256, computed.sha512) == (
-        target.byte_size,
-        target.sha256,
-        target.sha512,
+    elif matches_recorded_integrity(
+        computed, byte_size=target.byte_size, sha256=target.sha256, sha512=target.sha512
     ):
         result = EvidenceIntegrityResult.MATCH
     else:

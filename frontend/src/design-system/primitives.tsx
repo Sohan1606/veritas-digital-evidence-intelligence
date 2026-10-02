@@ -67,7 +67,7 @@ export function DemoNotice({ notice = "Demonstration data", compact = false }: {
         <div className="font-mono text-2xs uppercase tracking-[0.14em] text-warn">{notice}</div>
         <p className="mt-1 text-fg-muted">
           Fictional records created by the development seed. Evidence items are metadata only — no evidence content
-          exists — and no examination method has been executed. Nothing shown here is a forensic result.
+          exists — so demonstration records are never examined. Nothing shown here is a forensic result.
         </p>
       </div>
     </div>

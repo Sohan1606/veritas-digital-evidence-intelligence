@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { ApiError, apiGet } from "./client";
 
 /**
@@ -12,7 +12,14 @@ export type ResourceState<T> =
   | { status: "ready"; data: T }
   | { status: "error"; error: ApiError };
 
-type Entry = { state: ResourceState<unknown>; promise?: Promise<void> };
+type Entry = {
+  state: ResourceState<unknown>;
+  promise?: Promise<void>;
+  /** The last in-place refresh failed while the previous data is still shown. */
+  refreshError?: ApiError;
+  /** A refresh was requested while one was in flight; run exactly one more afterwards. */
+  again?: boolean;
+};
 
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
@@ -58,6 +65,45 @@ function load(path: string, scope: string) {
   cache.set(key, entry);
 }
 
+/**
+ * Refresh a loaded resource in place: the previous data stays on screen until the new data
+ * arrives (no loading flicker). A failure keeps the previous data and records ``refreshError`` so
+ * a caller can say plainly that what is shown may be out of date.
+ */
+function revalidate(path: string, scope: string) {
+  const entry = cache.get(cacheKey(scope, path));
+  if (!entry) return;
+  if (entry.promise) {
+    entry.again = true; // the request in flight may predate the change that asked for this
+    return;
+  }
+  entry.promise = apiGet<unknown>(path)
+    .then((data) => {
+      entry.state = { status: "ready", data };
+      entry.refreshError = undefined;
+    })
+    .catch((error: unknown) => {
+      const failure = toApiError(error);
+      if (entry.state.status === "ready") entry.refreshError = failure;
+      else entry.state = { status: "error", error: failure };
+    })
+    .finally(() => {
+      entry.promise = undefined;
+      notify();
+      if (entry.again) {
+        entry.again = false;
+        revalidate(path, scope);
+      }
+    });
+}
+
+export interface ResourceOptions<T> {
+  /** Re-fetch in place at this interval (only while ``refreshWhile`` allows it). */
+  refreshMs?: number;
+  /** Keep refreshing only while this is true for the latest data (e.g. a run is still active). */
+  refreshWhile?: (data: T) => boolean;
+}
+
 /** Replace the identity boundary and drop every cached/in-flight resource reference. */
 export function setResourceIdentityScope(scope: string) {
   if (scope === identityScope) return;
@@ -67,13 +113,32 @@ export function setResourceIdentityScope(scope: string) {
 }
 
 /** Subscribe to a GET resource. Pass `null` to skip fetching. */
-export function useResource<T>(path: string | null): ResourceState<T> & { reload: () => void } {
+export function useResource<T>(
+  path: string | null,
+  options: ResourceOptions<T> = {},
+): ResourceState<T> & { reload: () => void; refresh: () => void; refreshError: ApiError | null } {
   useSyncExternalStore(subscribe, () => version);
   const scope = identityScope;
   const key = path ? cacheKey(scope, path) : null;
+  const { refreshMs } = options;
+  const refreshWhile = useRef(options.refreshWhile);
+  useEffect(() => {
+    refreshWhile.current = options.refreshWhile;
+  });
   useEffect(() => {
     if (path) load(path, scope);
   }, [path, scope]);
+
+  useEffect(() => {
+    if (!path || !refreshMs) return;
+    const timer = window.setInterval(() => {
+      const state = cache.get(cacheKey(scope, path))?.state;
+      if (state?.status !== "ready") return;
+      if (refreshWhile.current && !refreshWhile.current(state.data as T)) return;
+      revalidate(path, scope);
+    }, refreshMs);
+    return () => window.clearInterval(timer);
+  }, [path, scope, refreshMs]);
 
   const reload = useCallback(() => {
     if (!path || !key) return;
@@ -82,9 +147,14 @@ export function useResource<T>(path: string | null): ResourceState<T> & { reload
     notify();
   }, [path, key, scope]);
 
-  if (!path || !key) return { status: "loading", reload };
-  const state = (cache.get(key)?.state ?? { status: "loading" }) as ResourceState<T>;
-  return { ...state, reload };
+  const refresh = useCallback(() => {
+    if (path) revalidate(path, scope);
+  }, [path, scope]);
+
+  if (!path || !key) return { status: "loading", reload, refresh, refreshError: null };
+  const entry = cache.get(key);
+  const state = (entry?.state ?? { status: "loading" }) as ResourceState<T>;
+  return { ...state, reload, refresh, refreshError: entry?.refreshError ?? null };
 }
 
 /** Test helper: reset cache and return to an isolated anonymous scope. */

@@ -99,11 +99,39 @@ class AttributeBasis(StrEnum):
 
 
 class AnalysisRunState(StrEnum):
+    """Lifecycle of one Analysis Run; permitted transitions are owned by ``domain.lifecycle``."""
+
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class ExaminationAuditAction(StrEnum):
+    """Canonical AuditEvent actions of the V2.3 examination workflow (metadata only)."""
+
+    RUN_CREATED = "examination.run.created"
+    RUN_STARTED = "examination.run.started"
+    RUN_COMPLETED = "examination.run.completed"
+    RUN_FAILED = "examination.run.failed"
+    RUN_CANCELLED = "examination.run.cancelled"
+    RUN_RETRIED = "examination.run.retried"
+    # Accountability for a user request that is only a request until the worker acts on it.
+    RUN_CANCEL_REQUESTED = "examination.run.cancel_requested"
+    # A RUNNING run returned to QUEUED because its worker stopped (stale heartbeat or shutdown).
+    RUN_RECOVERED = "examination.run.recovered"
+
+
+class ExaminationFailureCode(StrEnum):
+    """Why a run FAILED. Each code has one fixed, sanitized message (``examination.contracts``)."""
+
+    METHOD_UNAVAILABLE = "method_unavailable"
+    NOT_ELIGIBLE = "not_eligible"
+    EVIDENCE_UNAVAILABLE = "evidence_unavailable"
+    INTEGRITY_MISMATCH = "integrity_mismatch"
+    RESOURCE_LIMIT_EXCEEDED = "resource_limit_exceeded"
+    EXECUTION_FAILED = "execution_failed"
 
 
 class ObservationOrigin(StrEnum):

@@ -232,7 +232,7 @@ export const systemInfo: SystemInfo = {
   capabilities: [
     { key: "case_records", label: "Case records", status: "available", note: "Read-only." },
     { key: "identity", label: "User identity & access control", status: "available", note: "Provisioned identity and role-based authorization." },
-    { key: "examination", label: "Automated examination", status: "reserved", note: "No examination methods are executable in V1." },
+    { key: "examination", label: "Examination", status: "available", note: "Versioned, deterministic Methods run against PRESERVED EvidenceObject bytes as durable Analysis Runs that publish Observations only." },
     { key: "timeline", label: "Timeline reconstruction", status: "reserved", note: "Requires temporal observations." },
     { key: "review", label: "Review & decisions", status: "reserved", note: "Requires investigator identity." },
     { key: "report", label: "Reports & Case Package", status: "reserved", note: "Not implemented." },

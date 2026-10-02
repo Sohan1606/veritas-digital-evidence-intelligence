@@ -3,10 +3,12 @@
  * and non-colour glyph. Colour is never the only carrier of meaning.
  */
 import type {
+  AnalysisRunState,
   AssessmentState,
   CaseState,
   ClaimState,
   EvidenceIntegrityResult,
+  EvidenceObjectState,
   EvidenceType,
   FindingReviewStatus,
   NodeType,
@@ -37,6 +39,22 @@ export const INTEGRITY_RESULT: Record<EvidenceIntegrityResult, StateSemantics> =
   MATCH: { label: "Integrity match", tone: "ok", glyph: "filled" },
   MISMATCH: { label: "Integrity mismatch", tone: "warn", glyph: "diamond" },
   UNAVAILABLE: { label: "Verification unavailable", tone: "muted", glyph: "dashed" },
+};
+
+/** Lifecycle of one Analysis Run. Shapes differ as well as colours, so state never relies on colour. */
+export const RUN_STATE: Record<AnalysisRunState, StateSemantics> = {
+  queued: { label: "Queued", tone: "neutral", glyph: "ring" },
+  running: { label: "Running", tone: "signal", glyph: "half" },
+  completed: { label: "Completed", tone: "ok", glyph: "filled" },
+  failed: { label: "Failed", tone: "risk", glyph: "cross" },
+  cancelled: { label: "Cancelled", tone: "muted", glyph: "dashed" },
+};
+
+/** The one tone mapping for a stored EvidenceObject's lifecycle state (Evidence and Examination). */
+export const OBJECT_STATE_TONE: Record<EvidenceObjectState, Tone> = {
+  PRESERVED: "ok",
+  QUARANTINED: "warn",
+  REJECTED: "risk",
 };
 
 export const REVIEW_STATUS: Record<FindingReviewStatus, StateSemantics> = {

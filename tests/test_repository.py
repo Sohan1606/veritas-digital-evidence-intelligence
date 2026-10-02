@@ -165,6 +165,40 @@ def test_frontend_source_never_addresses_backend_host_directly() -> None:
     assert offenders == []
 
 
+def test_frontend_source_defines_no_examination_method() -> None:
+    """Methods are discovered from the backend registry; the UI never hardcodes one (V2.3)."""
+    src = ROOT / "frontend" / "src"
+    offenders = [
+        rel(p)
+        for p in repo_files()
+        if src in p.parents
+        and not is_test_file(p)
+        and re.search(
+            r"core\.binary_characteristics|Binary Characteristics",
+            p.read_text(errors="ignore"),
+        )
+    ]
+    assert offenders == []
+
+
+def test_documentation_cites_only_tests_that_exist() -> None:
+    """A document that names a test must name a real one (guards against stale references)."""
+    sources = "\n".join(
+        p.read_text(errors="ignore")
+        for p in repo_files()
+        if is_test_file(p) and p.suffix in {".py", ".ts", ".tsx"}
+    )
+    cited = {
+        (rel(doc), name)
+        for doc in repo_files()
+        if doc.suffix == ".md"
+        for name in re.findall(r"`(test_[a-z0-9_]+)`", doc.read_text(errors="ignore"))
+    }
+    assert cited, "no documentation cites a test; this guard would be vacuous"
+    missing = sorted((doc, name) for doc, name in cited if f"def {name}" not in sources)
+    assert missing == []
+
+
 def test_demonstration_data_is_labelled() -> None:
     notice = "DEMONSTRATION DATA — NOT REAL EVIDENCE"
     assert notice in (ROOT / "backend" / "app" / "schemas.py").read_text(encoding="utf-8")
@@ -183,6 +217,8 @@ def test_required_project_files_exist() -> None:
         "docker/nginx.conf",
         ".github/workflows/ci.yml",
         "docs/architecture.md",
+        "docs/examination-core-v2.3.md",
+        "ARENA_V2.3_HANDOFF_MANIFEST.md",
         "scripts/setup.sh",
         "scripts/dev.sh",
         "scripts/check.sh",
